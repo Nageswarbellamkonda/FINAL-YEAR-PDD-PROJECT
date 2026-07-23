@@ -50,7 +50,8 @@ jobs:
           pytest Testing/Selenium/test_nyayamitra.py --html=Reports/Selenium_Report.html || true
           
       - name: Setup Pages
-        uses: actions/configure-pages@v4
+        id: pages
+        uses: actions/configure-pages@v5
         
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
