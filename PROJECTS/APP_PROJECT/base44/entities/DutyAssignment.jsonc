@@ -1,0 +1,106 @@
+{
+  "name": "DutyAssignment",
+  "type": "object",
+  "properties": {
+    "officer_email": {
+      "type": "string",
+      "description": "Email of the assigned officer"
+    },
+    "officer_name": {
+      "type": "string"
+    },
+    "assigned_by": {
+      "type": "string",
+      "description": "Email of the assigning officer (CI/SI/DSP)"
+    },
+    "district": {
+      "type": "string"
+    },
+    "station": {
+      "type": "string"
+    },
+    "mandal": {
+      "type": "string"
+    },
+    "role": {
+      "type": "string"
+    },
+    "duty_type": {
+      "type": "string",
+      "enum": [
+        "patrol",
+        "bandobast",
+        "vip_security",
+        "traffic",
+        "investigation",
+        "court_duty",
+        "night_duty",
+        "emergency"
+      ],
+      "default": "patrol"
+    },
+    "duty_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "shift": {
+      "type": "string",
+      "enum": [
+        "morning",
+        "afternoon",
+        "evening",
+        "night"
+      ],
+      "default": "morning"
+    },
+    "start_time": {
+      "type": "string"
+    },
+    "end_time": {
+      "type": "string"
+    },
+    "location": {
+      "type": "string",
+      "description": "Patrol zone or specific location"
+    },
+    "geo_lat": {
+      "type": "number",
+      "description": "Duty zone center latitude"
+    },
+    "geo_lng": {
+      "type": "number",
+      "description": "Duty zone center longitude"
+    },
+    "geo_radius_m": {
+      "type": "number",
+      "default": 500,
+      "description": "Attendance allowed radius in meters"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "scheduled",
+        "active",
+        "completed",
+        "cancelled"
+      ],
+      "default": "scheduled"
+    },
+    "notes": {
+      "type": "string"
+    },
+    "attendance_marked": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "required": [
+    "officer_email",
+    "officer_name",
+    "district",
+    "station",
+    "duty_type",
+    "duty_date",
+    "shift"
+  ]
+}

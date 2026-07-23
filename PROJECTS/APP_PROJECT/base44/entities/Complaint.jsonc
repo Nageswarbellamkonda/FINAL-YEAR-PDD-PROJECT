@@ -1,0 +1,139 @@
+{
+  "name": "Complaint",
+  "type": "object",
+  "properties": {
+    "case_id": {
+      "type": "string",
+      "description": "Unique case identifier"
+    },
+    "title": {
+      "type": "string",
+      "description": "Brief title of the complaint"
+    },
+    "description": {
+      "type": "string",
+      "description": "Detailed description of the complaint"
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "narcotics",
+        "snatching",
+        "women_safety",
+        "cyber_crime",
+        "otp_fraud",
+        "theft",
+        "assault",
+        "domestic_violence",
+        "missing_person",
+        "traffic",
+        "corruption",
+        "other"
+      ],
+      "description": "Category of the complaint"
+    },
+    "priority": {
+      "type": "string",
+      "enum": [
+        "low",
+        "normal",
+        "high",
+        "critical"
+      ],
+      "description": "AI-assigned priority level"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "filed",
+        "under_review",
+        "assigned",
+        "investigating",
+        "escalated",
+        "court_hearing",
+        "resolved",
+        "closed"
+      ],
+      "default": "filed"
+    },
+    "complainant_name": {
+      "type": "string"
+    },
+    "complainant_phone": {
+      "type": "string"
+    },
+    "complainant_email": {
+      "type": "string"
+    },
+    "location": {
+      "type": "string",
+      "description": "Location of incident"
+    },
+    "district": {
+      "type": "string"
+    },
+    "proof_urls": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "URLs of uploaded proof files"
+    },
+    "assigned_officer": {
+      "type": "string",
+      "description": "Email of assigned police officer"
+    },
+    "assigned_department": {
+      "type": "string",
+      "enum": [
+        "general",
+        "narcotics",
+        "she_teams",
+        "cyber_crime",
+        "cid",
+        "traffic",
+        "anti_corruption"
+      ],
+      "default": "general"
+    },
+    "assigned_lawyer": {
+      "type": "string"
+    },
+    "action_updates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string"
+          },
+          "update": {
+            "type": "string"
+          },
+          "by": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "escalation_date": {
+      "type": "string",
+      "description": "Date when case should auto-escalate"
+    },
+    "is_escalated": {
+      "type": "boolean",
+      "default": false
+    },
+    "court_date": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "title",
+    "description",
+    "category",
+    "complainant_name",
+    "complainant_phone",
+    "location"
+  ]
+}

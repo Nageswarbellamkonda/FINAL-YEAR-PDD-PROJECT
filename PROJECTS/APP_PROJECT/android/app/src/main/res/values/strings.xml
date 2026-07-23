@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Nyayamitra</string>
+    <string name="title_activity_main">Nyayamitra</string>
+    <string name="package_name">com.nyayamitra.app</string>
+    <string name="custom_url_scheme">com.nyayamitra.app</string>
+</resources>

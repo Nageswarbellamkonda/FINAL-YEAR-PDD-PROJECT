@@ -1,0 +1,73 @@
+{
+  "name": "StationAlert",
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string"
+    },
+    "message": {
+      "type": "string"
+    },
+    "alert_type": {
+      "type": "string",
+      "enum": [
+        "crime_alert",
+        "duty_notice",
+        "emergency",
+        "news",
+        "advisory",
+        "weather"
+      ],
+      "default": "crime_alert"
+    },
+    "severity": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ],
+      "default": "medium"
+    },
+    "scope": {
+      "type": "string",
+      "enum": [
+        "all",
+        "district",
+        "station"
+      ],
+      "default": "district"
+    },
+    "district": {
+      "type": "string"
+    },
+    "station": {
+      "type": "string"
+    },
+    "published_by": {
+      "type": "string",
+      "description": "Email of publishing officer"
+    },
+    "publisher_role": {
+      "type": "string"
+    },
+    "publisher_name": {
+      "type": "string"
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": true
+    },
+    "expires_at": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "title",
+    "message",
+    "alert_type",
+    "scope",
+    "published_by"
+  ]
+}
