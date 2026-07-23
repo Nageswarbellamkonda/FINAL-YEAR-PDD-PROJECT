@@ -1,0 +1,26 @@
+{
+  "name": "Feedback",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string"
+    },
+    "rating": {
+      "type": "number"
+    },
+    "feature": {
+      "type": "string"
+    },
+    "message": {
+      "type": "string"
+    },
+    "is_public": {
+      "type": "boolean",
+      "default": true
+    }
+  },
+  "required": [
+    "rating",
+    "message"
+  ]
+}

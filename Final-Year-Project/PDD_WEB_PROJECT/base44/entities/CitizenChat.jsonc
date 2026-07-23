@@ -1,0 +1,36 @@
+{
+  "name": "CitizenChat",
+  "type": "object",
+  "properties": {
+    "case_id": {
+      "type": "string",
+      "description": "The complaint case ID this chat belongs to"
+    },
+    "sender_email": {
+      "type": "string"
+    },
+    "sender_name": {
+      "type": "string"
+    },
+    "sender_role": {
+      "type": "string",
+      "enum": [
+        "citizen",
+        "police"
+      ],
+      "default": "citizen"
+    },
+    "message": {
+      "type": "string"
+    },
+    "read": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "required": [
+    "case_id",
+    "sender_email",
+    "message"
+  ]
+}

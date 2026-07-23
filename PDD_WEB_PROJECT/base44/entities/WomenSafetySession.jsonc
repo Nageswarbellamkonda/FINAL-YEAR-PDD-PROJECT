@@ -1,0 +1,73 @@
+{
+  "name": "WomenSafetySession",
+  "type": "object",
+  "properties": {
+    "user_email": {
+      "type": "string"
+    },
+    "user_name": {
+      "type": "string"
+    },
+    "user_phone": {
+      "type": "string"
+    },
+    "companion_name": {
+      "type": "string"
+    },
+    "companion_phone": {
+      "type": "string"
+    },
+    "vehicle_number": {
+      "type": "string"
+    },
+    "destination": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "safe",
+        "alert",
+        "emergency"
+      ],
+      "default": "active"
+    },
+    "last_checkin": {
+      "type": "string"
+    },
+    "checkin_interval_minutes": {
+      "type": "number",
+      "default": 10
+    },
+    "last_location": {
+      "type": "string"
+    },
+    "emergency_contacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "otp_code": {
+      "type": "string"
+    },
+    "missed_checkins": {
+      "type": "number",
+      "default": 0
+    }
+  },
+  "required": [
+    "user_email",
+    "user_name",
+    "user_phone"
+  ]
+}
