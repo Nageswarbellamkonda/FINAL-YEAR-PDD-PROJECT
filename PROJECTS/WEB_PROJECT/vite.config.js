@@ -4,7 +4,7 @@ import { defineConfig } from 'vite'
 
 // https://vite.dev/config/
 export default defineConfig({
-  base: './',
+  base: '/FINAL-YEAR-PDD-PROJECT/',
   logLevel: 'error', // Suppress warnings, only show errors
   plugins: [
     react(),

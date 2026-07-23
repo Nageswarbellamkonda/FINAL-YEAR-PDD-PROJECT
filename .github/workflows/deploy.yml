@@ -33,6 +33,12 @@ jobs:
         
       - name: Build project
         run: cd PROJECTS/WEB_PROJECT && npm run build
+        env:
+          VITE_SUPABASE_URL: https://bbznxozzucrhpppicjpg.supabase.co
+          VITE_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJiem54b3p6dWNyaHBwcGljanBnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQzMDg1MzAsImV4cCI6MjA5OTg4NDUzMH0.ypnRyHKiT9a1zR_ZTVqPU0izrpmMmN-L7iKe2gneEqQ
+          VITE_GEMINI_API_KEY: AIzaSyCmhDGvaBUQuFCvaDWt037KIgAPZj73Q70
+          VITE_AI_BASE_URL: https://generativelanguage.googleapis.com/v1beta/openai
+          VITE_AI_MODEL: gemini-1.5-flash
         
       - name: Setup Python
         uses: actions/setup-python@v4
