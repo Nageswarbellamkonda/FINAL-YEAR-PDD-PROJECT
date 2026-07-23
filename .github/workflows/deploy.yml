@@ -26,13 +26,13 @@ jobs:
         with:
           node-version: 18
           cache: 'npm'
-          cache-dependency-path: './Final-Year-Project/PDD_WEB_PROJECT/package-lock.json'
+          cache-dependency-path: './PROJECTS/WEB_PROJECT/package-lock.json'
           
       - name: Install dependencies
-        run: cd Final-Year-Project/PDD_WEB_PROJECT && npm ci
+        run: cd PROJECTS/WEB_PROJECT && npm ci
         
       - name: Build project
-        run: cd Final-Year-Project/PDD_WEB_PROJECT && npm run build
+        run: cd PROJECTS/WEB_PROJECT && npm run build
         
       - name: Setup Python
         uses: actions/setup-python@v4
@@ -46,7 +46,7 @@ jobs:
           
       - name: Run Tests & Generate Reports
         run: |
-          cd Final-Year-Project/PDD_WEB_PROJECT
+          cd PROJECTS/WEB_PROJECT
           pytest Testing/Selenium/test_nyayamitra.py --html=Reports/Selenium_Report.html || true
           
       - name: Setup Pages
@@ -55,7 +55,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: './Final-Year-Project/PDD_WEB_PROJECT/dist'
+          path: './PROJECTS/WEB_PROJECT/dist'
 
   deploy:
     environment:
