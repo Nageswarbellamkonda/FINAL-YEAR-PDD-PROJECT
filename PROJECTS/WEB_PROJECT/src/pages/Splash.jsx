@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Shield } from "lucide-react";
 
-const APP_LOGO = "/logo.png";
+const APP_LOGO = import.meta.env.BASE_URL + "logo.png";
 
 export default function Splash({ onComplete }) {
   const [phase, setPhase] = useState(0);

@@ -88,7 +88,7 @@ export default function Login() {
           </Link>
           
           <div className="mb-8">
-            <img src="/logo.png" alt="NyayaMitra Logo" className="h-16 mb-6" />
+            <img src={`${import.meta.env.BASE_URL}logo.png`} alt="NyayaMitra Logo" className="h-16 mb-6" />
             <h1 className="text-3xl font-heading font-bold mb-4 leading-tight">
               NyayaMitra<br/>
               <span className="text-secondary text-xl font-medium">Digital Justice Platform</span>

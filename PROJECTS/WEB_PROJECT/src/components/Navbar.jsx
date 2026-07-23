@@ -13,7 +13,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-const APP_LOGO = "/logo.png";
+const APP_LOGO = import.meta.env.BASE_URL + "logo.png";
 
 export default function Navbar() {
   const [mobileOpen, setMobileOpen] = useState(false);

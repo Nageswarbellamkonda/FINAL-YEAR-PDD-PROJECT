@@ -52,6 +52,7 @@ export default function PoliceAIAdvisor() {
     const totalCases = aiContext?.stats?.total || 0;
     const priorityCounts = {
       critical: aiContext?.stats?.critical || 0,
+      high: aiContext?.stats?.high || 0,
       pending: aiContext?.stats?.pending || 0
     };
     const topCategories = (aiContext?.categoryData || []).slice(0, 5).map(c => [c.name, c.value]);
@@ -112,7 +113,7 @@ Generated: ${new Date().toLocaleString('en-IN')}
    • Cyber crime: forensic toolkit deployment if not already active.
 
 5. RISK FORECAST (Next 24–48 Hours):
-   Based on ${districtData.length} case records for ${district}:
+   Based on ${totalCases} case records for ${district}:
    • ${priorityCounts.critical > 2 ? "⚠️ HIGH ALERT — Multiple critical cases. Expect media attention and SP oversight." : "✅ NORMAL — Maintain standard readiness."}
    • Weekend/festival periods: Increase patrol strength by 30% as preventive measure.
    • Monitor social media for any organized crime or protest alerts in ${district}.
@@ -194,7 +195,7 @@ NYAYA MITRA AI Advisory System • AP Police Smart Policing Platform`;
             <motion.div key={i} animate={{ height: [8, 28, 8] }} transition={{ duration: 0.5, repeat: Infinity, delay: i * 0.1 }}
               className="w-2 bg-primary rounded-full" />
           ))}
-          <span className="text-muted-foreground text-sm ml-2">Processing {districtData.length} case records for {district}...</span>
+          <span className="text-muted-foreground text-sm ml-2">Processing {(aiContext?.stats?.total || 0)} case records for {district}...</span>
         </div>
       )}
 
