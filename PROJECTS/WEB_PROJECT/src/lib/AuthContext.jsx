@@ -1,6 +1,6 @@
 import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
-import { getAuthCallbackUrl } from '@/lib/config';
+import { getAuthCallbackUrl, config } from '@/lib/config';
 
 const AuthContext = createContext();
 
@@ -540,7 +540,9 @@ export const AuthProvider = ({ children }) => {
 
   const sendPasswordReset = useCallback(async (email) => {
     try {
-      const redirectTo = `${window.location.origin}/login`;
+      const fallbackUrl = "https://nageswarbellamkonda.github.io/FINAL-YEAR-PDD-PROJECT";
+      const base = config.app.url && !config.app.url.includes('localhost') ? config.app.url : fallbackUrl;
+      const redirectTo = `${base.replace(/\/$/, '')}/reset-password`;
       const { data, error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo });
       return { data, error };
     } catch (error) {
