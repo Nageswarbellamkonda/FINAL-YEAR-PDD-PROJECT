@@ -1,7 +1,7 @@
 import { Toaster } from "@/components/ui/toaster"
 import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClientInstance } from '@/lib/query-client'
-import { HashRouter as Router, Route, Routes, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Route, Routes, Navigate } from 'react-router-dom';
 import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
@@ -56,7 +56,7 @@ import SystemAdminBoard from './pages/SystemAdminBoard';
 import CitizenDashboard from './pages/CitizenDashboard';
 import CyberOpsCenter from './pages/CyberOpsCenter';
 import CompleteProfile from './pages/CompleteProfile';
-import ResetPassword from './pages/ResetPassword';
+
 
 const RequireRole = ({ children, allowedRoles }) => {
   const { profile } = useAuth();
@@ -98,7 +98,7 @@ const AuthenticatedApp = () => {
         <Route path="/auth" element={<Navigate to="/login" replace />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/complete-profile" element={<CompleteProfile />} />
-        <Route path="/reset-password" element={<ResetPassword />} />
+
         <Route path="/file-complaint" element={<FileComplaint />} />
         <Route path="/track-case" element={<TrackCase />} />
         {/* women-safety removed */}

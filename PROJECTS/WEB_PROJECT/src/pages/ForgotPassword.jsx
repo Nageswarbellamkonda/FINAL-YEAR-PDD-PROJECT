@@ -2,96 +2,88 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useLanguage } from '../lib/LanguageContext';
 import { supabase } from '@/lib/supabase';
-import { config } from '@/lib/config';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Loader2, MailCheck, KeyRound } from 'lucide-react';
-
-function extractErrorMessage(error) {
-  if (!error) return null;
-  if (typeof error === 'string') return error;
-  if (error.message) return error.message;
-  if (error.details) return error.details;
-  if (error.error_description) return error.error_description;
-  if (typeof error === 'object') {
-    for (const key of ['msg', 'error', 'message', 'details', 'description']) {
-      if (error[key] && typeof error[key] === 'string') {
-        return error[key];
-      }
-    }
-  }
-  return JSON.stringify(error);
-}
+import { ArrowLeft, Loader2, KeyRound } from 'lucide-react';
 
 export default function ForgotPassword() {
   const { lang } = useLanguage();
   const navigate = useNavigate();
-  const [step, setStep] = useState(1); // 1: Email, 2: OTP
+  
   const [email, setEmail] = useState('');
-  const [otp, setOtp] = useState('');
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
-  const handleSendEmail = async (e) => {
-    e.preventDefault();
-    if (!email.trim()) return;
-    
-    setLoading(true);
-    setError('');
-    setMessage('');
-    
-    try {
-      // Requested hardcoded redirect URL
-      const redirectTo = "https://nageswarbellamkonda.github.io/FINAL-YEAR-PDD-PROJECT/reset-password";
-      const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo });
-      
-      setLoading(false);
-      if (error) {
-        const errorMsg = extractErrorMessage(error);
-        setError(errorMsg || (lang === 'te' ? 'పాస్‌వర్డ్ రీసెట్ విఫలమైంది' : 'Password reset failed'));
-        return;
-      }
-      
-      setStep(2);
-      setMessage(lang === 'te' 
-        ? 'మీ ఇమెయిల్‌కు 6 అంకెల OTP పంపబడింది.' 
-        : 'A 6-digit OTP has been sent to your email. Enter it below.');
-    } catch (e) {
-      setLoading(false);
-      setError(lang === 'te' ? 'పనిలో లోపం జరిగింది' : 'An error occurred');
-    }
+  const validatePassword = (pwd) => {
+    if (pwd.length < 8) return lang === 'te' ? 'పాస్‌వర్డ్ కనీసం 8 అక్షరాలు ఉండాలి' : 'Password must be at least 8 characters.';
+    if (!/[a-zA-Z]/.test(pwd)) return lang === 'te' ? 'పాస్‌వర్డ్‌లో అక్షరాలు ఉండాలి' : 'Password must contain letters.';
+    if (!/[0-9]/.test(pwd)) return lang === 'te' ? 'పాస్‌వర్డ్‌లో సంఖ్యలు ఉండాలి' : 'Password must contain numbers.';
+    return null;
   };
 
-  const handleVerifyOtp = async (e) => {
+  const handleUpdatePassword = async (e) => {
     e.preventDefault();
-    if (!otp.trim()) return;
+    if (!email.trim() || !currentPassword || !newPassword || !confirmPassword) return;
+
+    setError('');
+    
+    const pwdError = validatePassword(newPassword);
+    if (pwdError) {
+      setError(pwdError);
+      return;
+    }
+
+    if (newPassword === currentPassword) {
+      setError(lang === 'te' ? 'కొత్త పాస్‌వర్డ్ పాత పాస్‌వర్డ్‌లా ఉండకూడదు' : 'New password must not equal Current password.');
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setError(lang === 'te' ? 'పాస్‌వర్డ్‌లు సరిపోలడం లేదు' : 'Passwords do not match.');
+      return;
+    }
 
     setLoading(true);
-    setError('');
-    setMessage('');
 
     try {
-      const { error } = await supabase.auth.verifyOtp({
+      // 1. Verify ownership
+      const { error: signInError } = await supabase.auth.signInWithPassword({
         email: email.trim(),
-        token: otp.trim(),
-        type: 'recovery'
+        password: currentPassword
       });
 
-      setLoading(false);
-      if (error) {
-        const errorMsg = extractErrorMessage(error);
-        setError(errorMsg || (lang === 'te' ? 'చెల్లని OTP' : 'Invalid OTP. Please try again.'));
+      if (signInError) {
+        setLoading(false);
+        setError(lang === 'te' ? 'ప్రస్తుత పాస్‌వర్డ్ తప్పు.' : 'Current password is incorrect.');
         return;
       }
 
-      // OTP verified successfully, user now has a session.
-      navigate('/reset-password');
-    } catch (e) {
+      // 2. Update password
+      const { error: updateError } = await supabase.auth.updateUser({
+        password: newPassword
+      });
+
+      if (updateError) {
+        setLoading(false);
+        setError(updateError.message || (lang === 'te' ? 'పాస్‌వర్డ్ నవీకరణ విఫలమైంది' : 'Failed to update password.'));
+        return;
+      }
+
+      // 3. Sign out immediately
+      await supabase.auth.signOut();
       setLoading(false);
-      setError(lang === 'te' ? 'పనిలో లోపం జరిగింది' : 'An error occurred verifying OTP');
+      
+      // 4. Redirect to login with reset=1 to show success message
+      navigate('/login?reset=1', { replace: true });
+    } catch (err) {
+      setLoading(false);
+      setError(lang === 'te' ? 'పనిలో లోపం జరిగింది' : 'An error occurred.');
     }
   };
 
@@ -105,83 +97,86 @@ export default function ForgotPassword() {
         <Card className="border border-border bg-card shadow-lg rounded-2xl overflow-hidden">
           <CardHeader className="text-center pb-2 bg-muted/30">
             <div className="mx-auto w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center mb-4 text-primary">
-              {step === 1 ? <KeyRound className="w-6 h-6" /> : <MailCheck className="w-6 h-6" />}
+              <KeyRound className="w-6 h-6" />
             </div>
             <CardTitle className="font-heading text-2xl font-bold tracking-tight">
-              {step === 1 
-                ? (lang === 'te' ? 'పాస్‌వర్డ్ మర్చిపోయారా?' : 'Forgot Password?')
-                : (lang === 'te' ? 'OTP నమోదు చేయండి' : 'Enter Verification Code')}
+              {lang === 'te' ? 'పాస్‌వర్డ్ నవీకరించండి' : 'Change Password'}
             </CardTitle>
             <CardDescription className="text-sm mt-1.5 text-muted-foreground">
-              {step === 1
-                ? (lang === 'te' ? 'పాస్‌వర్డ్ రీసెట్ చేయడానికి మీ ఇమెయిల్‌ను నమోదు చేయండి' : 'Enter your email to receive a password reset code')
-                : (lang === 'te' ? `${email} కు పంపిన కోడ్‌ను నమోదు చేయండి` : `Enter the 6-digit code sent to ${email}`)}
+              {lang === 'te' 
+                ? 'మీ ఖాతాను నవీకరించడానికి మీ ప్రస్తుత పాస్‌వర్డ్ మరియు కొత్త పాస్‌వర్డ్ నమోదు చేయండి' 
+                : 'Enter your current password to set a new password.'}
             </CardDescription>
           </CardHeader>
           <CardContent className="pt-6">
-            {step === 1 ? (
-              <form onSubmit={handleSendEmail} className="space-y-4">
-                <div className="space-y-1.5">
-                  <Label htmlFor="fp-email">
-                    {lang === 'te' ? 'ఇమెయిల్ చిరునామా' : 'Email Address'}
-                  </Label>
-                  <Input 
-                    id="fp-email" 
-                    type="email" 
-                    value={email} 
-                    onChange={(e) => setEmail(e.target.value)} 
-                    placeholder="name@example.com"
-                    required 
-                    className="h-11"
-                  />
-                </div>
+            <form onSubmit={handleUpdatePassword} className="space-y-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="cp-email">
+                  {lang === 'te' ? 'ఇమెయిల్ చిరునామా' : 'Email Address'}
+                </Label>
+                <Input 
+                  id="cp-email" 
+                  type="email" 
+                  value={email} 
+                  onChange={(e) => setEmail(e.target.value)} 
+                  placeholder="name@example.com"
+                  required 
+                  className="h-11"
+                />
+              </div>
 
-                {error && <p className="text-sm text-red-600 text-center font-medium bg-red-50 p-2 rounded-md">{error}</p>}
+              <div className="space-y-1.5">
+                <Label htmlFor="cp-current">
+                  {lang === 'te' ? 'ప్రస్తుత పాస్‌వర్డ్' : 'Current Password'}
+                </Label>
+                <Input 
+                  id="cp-current" 
+                  type="password" 
+                  value={currentPassword} 
+                  onChange={(e) => setCurrentPassword(e.target.value)} 
+                  required 
+                  className="h-11"
+                  placeholder="••••••••"
+                />
+              </div>
 
-                <Button type="submit" className="w-full h-11 mt-2" disabled={loading || !email}>
-                  {loading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                  {lang === 'te' ? 'OTP పంపండి' : 'Send Verification Code'}
-                </Button>
-              </form>
-            ) : (
-              <form onSubmit={handleVerifyOtp} className="space-y-4">
-                <div className="space-y-1.5">
-                  <Label htmlFor="fp-otp">
-                    {lang === 'te' ? '6 అంకెల OTP' : '6-Digit OTP Code'}
-                  </Label>
-                  <Input 
-                    id="fp-otp" 
-                    type="text" 
-                    inputMode="numeric"
-                    maxLength={6}
-                    value={otp} 
-                    onChange={(e) => setOtp(e.target.value)} 
-                    placeholder="123456"
-                    className="h-11 text-center text-xl tracking-widest"
-                    required 
-                  />
-                </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="cp-new">
+                  {lang === 'te' ? 'కొత్త పాస్‌వర్డ్' : 'New Password'}
+                </Label>
+                <Input 
+                  id="cp-new" 
+                  type="password" 
+                  value={newPassword} 
+                  onChange={(e) => setNewPassword(e.target.value)} 
+                  required 
+                  className="h-11"
+                  placeholder="••••••••"
+                />
+              </div>
 
-                {message && <p className="text-sm text-green-700 text-center font-medium bg-green-50 p-2 rounded-md">{message}</p>}
-                {error && <p className="text-sm text-red-600 text-center font-medium bg-red-50 p-2 rounded-md">{error}</p>}
+              <div className="space-y-1.5">
+                <Label htmlFor="cp-confirm">
+                  {lang === 'te' ? 'కొత్త పాస్‌వర్డ్ నిర్ధారించండి' : 'Confirm Password'}
+                </Label>
+                <Input 
+                  id="cp-confirm" 
+                  type="password" 
+                  value={confirmPassword} 
+                  onChange={(e) => setConfirmPassword(e.target.value)} 
+                  required 
+                  className="h-11"
+                  placeholder="••••••••"
+                />
+              </div>
 
-                <Button type="submit" className="w-full h-11 mt-2" disabled={loading || otp.length < 6}>
-                  {loading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                  {lang === 'te' ? 'OTP నిర్ధారించండి' : 'Verify Code'}
-                </Button>
+              {error && <p className="text-sm text-red-600 text-center font-medium bg-red-50 p-2 rounded-md">{error}</p>}
 
-                <div className="text-center mt-4">
-                  <Button 
-                    type="button" 
-                    variant="ghost" 
-                    className="text-sm text-muted-foreground h-auto p-0"
-                    onClick={() => { setStep(1); setOtp(''); setError(''); setMessage(''); }}
-                  >
-                    {lang === 'te' ? 'వేరే ఇమెయిల్ ఉపయోగించండి' : 'Use a different email'}
-                  </Button>
-                </div>
-              </form>
-            )}
+              <Button type="submit" className="w-full h-11 mt-2" disabled={loading || !email || !currentPassword || !newPassword || !confirmPassword}>
+                {loading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                {lang === 'te' ? 'నవీకరించండి' : 'Update Password'}
+              </Button>
+            </form>
             
             <div className="mt-6 text-center">
               <p className="text-sm text-muted-foreground">

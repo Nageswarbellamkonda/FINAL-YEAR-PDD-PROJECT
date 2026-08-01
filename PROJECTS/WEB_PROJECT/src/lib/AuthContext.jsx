@@ -538,17 +538,7 @@ export const AuthProvider = ({ children }) => {
     window.location.href = '/login';
   }, []);
 
-  const sendPasswordReset = useCallback(async (email) => {
-    try {
-      const fallbackUrl = "https://nageswarbellamkonda.github.io/FINAL-YEAR-PDD-PROJECT";
-      const base = config.app.url && !config.app.url.includes('localhost') ? config.app.url : fallbackUrl;
-      const redirectTo = `${base.replace(/\/$/, '')}/reset-password`;
-      const { data, error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo });
-      return { data, error };
-    } catch (error) {
-      return { data: null, error };
-    }
-  }, []);
+
 
   return (
     <AuthContext.Provider
@@ -568,7 +558,7 @@ export const AuthProvider = ({ children }) => {
         refreshProfile,
         signIn,
         signUp,
-        sendPasswordReset,
+
       }}
     >
       {children}
