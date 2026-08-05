@@ -13,7 +13,6 @@ export default function ForgotPassword() {
   const navigate = useNavigate();
   
   const [email, setEmail] = useState('');
-  const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   
@@ -29,18 +28,13 @@ export default function ForgotPassword() {
 
   const handleUpdatePassword = async (e) => {
     e.preventDefault();
-    if (!email.trim() || !currentPassword || !newPassword || !confirmPassword) return;
+    if (!email.trim() || !newPassword || !confirmPassword) return;
 
     setError('');
     
     const pwdError = validatePassword(newPassword);
     if (pwdError) {
       setError(pwdError);
-      return;
-    }
-
-    if (newPassword === currentPassword) {
-      setError(lang === 'te' ? 'కొత్త పాస్‌వర్డ్ పాత పాస్‌వర్డ్‌లా ఉండకూడదు' : 'New password must not equal Current password.');
       return;
     }
 
@@ -52,38 +46,27 @@ export default function ForgotPassword() {
     setLoading(true);
 
     try {
-      // 1. Verify ownership
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password: currentPassword
+      const { data, error: invokeError } = await supabase.functions.invoke('reset-password', {
+        body: {
+          email: email.trim(),
+          newPassword,
+          confirmPassword
+        }
       });
 
-      if (signInError) {
-        setLoading(false);
-        setError(lang === 'te' ? 'ప్రస్తుత పాస్‌వర్డ్ తప్పు.' : 'Current password is incorrect.');
-        return;
+      if (invokeError) {
+        throw invokeError;
       }
 
-      // 2. Update password
-      const { error: updateError } = await supabase.auth.updateUser({
-        password: newPassword
-      });
-
-      if (updateError) {
-        setLoading(false);
-        setError(updateError.message || (lang === 'te' ? 'పాస్‌వర్డ్ నవీకరణ విఫలమైంది' : 'Failed to update password.'));
-        return;
+      if (data?.error) {
+        throw new Error(data.error);
       }
 
-      // 3. Sign out immediately
-      await supabase.auth.signOut();
       setLoading(false);
-      
-      // 4. Redirect to login with reset=1 to show success message
       navigate('/login?reset=1', { replace: true });
     } catch (err) {
       setLoading(false);
-      setError(lang === 'te' ? 'పనిలో లోపం జరిగింది' : 'An error occurred.');
+      setError(err.message || (lang === 'te' ? 'పనిలో లోపం జరిగింది' : 'An error occurred.'));
     }
   };
 
@@ -126,21 +109,6 @@ export default function ForgotPassword() {
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="cp-current">
-                  {lang === 'te' ? 'ప్రస్తుత పాస్‌వర్డ్' : 'Current Password'}
-                </Label>
-                <Input 
-                  id="cp-current" 
-                  type="password" 
-                  value={currentPassword} 
-                  onChange={(e) => setCurrentPassword(e.target.value)} 
-                  required 
-                  className="h-11"
-                  placeholder="••••••••"
-                />
-              </div>
-
-              <div className="space-y-1.5">
                 <Label htmlFor="cp-new">
                   {lang === 'te' ? 'కొత్త పాస్‌వర్డ్' : 'New Password'}
                 </Label>
@@ -172,7 +140,7 @@ export default function ForgotPassword() {
 
               {error && <p className="text-sm text-red-600 text-center font-medium bg-red-50 p-2 rounded-md">{error}</p>}
 
-              <Button type="submit" className="w-full h-11 mt-2" disabled={loading || !email || !currentPassword || !newPassword || !confirmPassword}>
+              <Button type="submit" className="w-full h-11 mt-2" disabled={loading || !email || !newPassword || !confirmPassword}>
                 {loading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                 {lang === 'te' ? 'నవీకరించండి' : 'Update Password'}
               </Button>
