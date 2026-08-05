@@ -32,7 +32,6 @@ const QUICK_TOOLS = [
   { icon: Search, label: "Track Case", labelTe: "కేసు ట్రాక్", to: "/track-case", color: "bg-secondary" },
   { icon: Zap, label: "Cyber Fraud", labelTe: "సైబర్ ఫ్రాడ్", to: "/golden-hour-cyber", color: "bg-yellow-600" },
   { icon: Navigation, label: "Safe Route", labelTe: "సురక్షిత మార్గం", to: "/safe-route", color: "bg-emerald-600" },
-  { icon: Heart, label: "Trusted Circle", labelTe: "నమ్మకమైన సర్కిల్", to: "/trusted-circle", color: "bg-rose-600" },
   { icon: MessageSquare, label: "Chat with Police", labelTe: "పోలీసుతో చాట్", to: "/citizen-chat", color: "bg-blue-700" },
   { icon: Bell, label: "Smart Alerts", labelTe: "స్మార్ట్ అలెర్ట్స్", to: "/smart-alerts", color: "bg-red-700" },
 ];
@@ -239,35 +238,6 @@ export default function CitizenDashboard() {
           ))}
         </div>
       </div>
-
-      {/* Women Safety Quick Panel */}
-      <Card className="border-pink-200 bg-pink-50">
-        <CardContent className="p-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-pink-600 flex items-center justify-center">
-                <Shield className="w-5 h-5 text-white" />
-              </div>
-              <div>
-                <p className="font-semibold text-pink-900 text-sm">
-                  {lang === "te" ? "మహిళా భద్రత — SHE టీమ్స్" : "Women Safety — SHE Teams"}
-                </p>
-                <p className="text-pink-700 text-xs">
-                  {lang === "te" ? "24/7 నిఘా • లైవ్ ట్రాకింగ్ • SOS" : "24/7 Monitoring • Live Tracking • SOS Alerts"}
-                </p>
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <a href="tel:181" className="bg-pink-600 text-white text-xs px-3 py-1.5 rounded-lg font-bold">
-                181
-              </a>
-              <Button asChild size="sm" variant="outline" className="text-pink-700 border-pink-300">
-                <Link to="/women-safety"><ChevronRight className="w-4 h-4" /></Link>
-              </Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
 
       {/* Cyber Fraud Quick Panel */}
       <Card className="border-yellow-200 bg-yellow-50">

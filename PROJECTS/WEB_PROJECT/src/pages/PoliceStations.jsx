@@ -223,7 +223,7 @@ export default function PoliceStations() {
 
   return (
     <div className="max-w-4xl mx-auto py-8 px-4">
-      <button onClick={() => navigate(-1)} className="flex items-center gap-2 text-muted-foreground hover:text-foreground mb-4 text-sm transition">
+      <button onClick={() => navigate('/dashboard')} className="flex items-center gap-2 text-muted-foreground hover:text-foreground mb-4 text-sm transition">
         <ArrowLeft className="w-4 h-4" /> Back
       </button>
 

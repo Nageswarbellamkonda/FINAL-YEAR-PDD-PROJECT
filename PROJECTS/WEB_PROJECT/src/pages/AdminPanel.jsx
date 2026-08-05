@@ -136,7 +136,7 @@ export default function AdminPanel() {
 
   return (
     <div className="max-w-7xl mx-auto py-8 px-4">
-      <button onClick={() => navigate(-1)} className="flex items-center gap-2 text-muted-foreground hover:text-foreground mb-4 text-sm">
+      <button onClick={() => navigate('/dashboard')} className="flex items-center gap-2 text-muted-foreground hover:text-foreground mb-4 text-sm">
         <ArrowLeft className="w-4 h-4" /> Back
       </button>
 

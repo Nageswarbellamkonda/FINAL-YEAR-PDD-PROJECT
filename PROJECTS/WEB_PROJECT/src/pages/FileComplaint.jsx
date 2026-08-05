@@ -255,7 +255,7 @@ export default function FileComplaint() {
 
   return (
     <div className="max-w-2xl mx-auto py-8 px-4">
-      <button onClick={() => navigate(-1)} className="flex items-center gap-2 text-muted-foreground hover:text-foreground mb-4 text-sm transition">
+      <button onClick={() => navigate('/dashboard')} className="flex items-center gap-2 text-muted-foreground hover:text-foreground mb-4 text-sm transition">
         <ArrowLeft className="w-4 h-4" /> Back
       </button>
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
