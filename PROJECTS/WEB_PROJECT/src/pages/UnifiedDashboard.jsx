@@ -114,7 +114,7 @@ export default function UnifiedDashboard() {
 
   return (
     <div className="max-w-7xl mx-auto py-6 px-4">
-      <button onClick={() => isOfficer ? window.location.href = "/officer-dashboard" : window.location.href = "/dashboard"}
+      <button onClick={() => isOfficer ? window.location.href = import.meta.env.BASE_URL + "officer-dashboard" : window.location.href = import.meta.env.BASE_URL + "dashboard"}
         className="flex items-center gap-2 text-muted-foreground hover:text-foreground mb-4 text-sm">
         ← {isOfficer ? "Officer Dashboard" : "Dashboard"}
       </button>

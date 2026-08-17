@@ -166,7 +166,10 @@ jobs:
           echo "VITE_AI_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai" >> .env.production
           echo "VITE_AI_MODEL=gemini-1.5-flash" >> .env.production
       - name: Build project
-        run: cd PROJECTS/WEB_PROJECT && npm run build
+        run: |
+          cd PROJECTS/WEB_PROJECT
+          npm run build
+          cp dist/index.html dist/404.html
       - name: Setup Pages
         id: pages
         uses: actions/configure-pages@v5

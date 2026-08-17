@@ -526,16 +526,18 @@ export const AuthProvider = ({ children }) => {
     }
 
     if (shouldRedirect) {
-      window.location.href = '/login';
+      window.location.href = import.meta.env.BASE_URL + 'login';
     }
   }, []);
 
   const navigateToLogin = useCallback(() => {
     const returnTo = window.location.pathname + window.location.search;
-    if (returnTo && returnTo !== '/login' && returnTo !== '/register') {
+    const loginPath = import.meta.env.BASE_URL + 'login';
+    const registerPath = import.meta.env.BASE_URL + 'register';
+    if (returnTo && returnTo !== loginPath && returnTo !== registerPath) {
       sessionStorage.setItem('auth_return_to', returnTo);
     }
-    window.location.href = '/login';
+    window.location.href = loginPath;
   }, []);
 
 

@@ -42,7 +42,7 @@ export default function DemoAccess() {
     setLoading(account.email);
     toast.info(`Redirecting to login — use email: ${account.email} | password: 123`, { duration: 4000 });
     setTimeout(() => {
-      window.location.href = "/auth";
+      window.location.href = import.meta.env.BASE_URL + "auth";
       setLoading(null);
     }, 1800);
   };
