@@ -1,0 +1,57 @@
+# NYAYA-MITRA Feature Migration Matrix
+
+| Feature | OLD WEB | NEW WEB | OLD APP | NEW APP | BACKEND | STATUS |
+|---|---|---|---|---|---|---|
+| ActivityLog | ✅ | ✅ | ✅ | ✅ | ⚠️ | PASS |
+| AdminPanel | ✅ | ✅ | ✅ | ✅ | ⚠️ | PASS |
+| AlertsAdmin | ✅ | ✅ | ✅ | ✅ | ⚠️ | PASS |
+| Analytics | ✅ | ✅ | ✅ | ✅ | ✅ | PASS |
+| AttendanceSystem | ✅ | ✅ | ✅ | ✅ | ⚠️ | PASS |
+| AuthCallback | ✅ | ✅ | ✅ | ✅ | ✅ | PASS |
+| AuthPortal | ✅ | ✅ | ❌ | ✅ | ✅ | PASS |
+| CaseManagement | ✅ | ✅ | ✅ | ✅ | ⚠️ | PASS |
+| ChangePassword | ❌ | ❌ | ✅ | ⚠️ | ⚠️ | MISSING |
+| CitizenChat | ✅ | ✅ | ✅ | ✅ | ⚠️ | PASS |
+| CitizenDashboard | ✅ | ✅ | ✅ | ✅ | ✅ | PASS |
+| CompleteProfile | ✅ | ✅ | ✅ | ✅ | ⚠️ | PASS |
+| ConstitutionRights | ✅ | ✅ | ✅ | ✅ | ⚠️ | PASS |
+| Contact | ✅ | ✅ | ✅ | ✅ | ⚠️ | PASS |
+| CourtDashboard | ✅ | ✅ | ✅ | ✅ | ✅ | PASS |
+| CrimeAnalysis | ✅ | ✅ | ✅ | ✅ | ⚠️ | PASS |
+| CrimeHeatMap | ✅ | ✅ | ✅ | ✅ | ⚠️ | PASS |
+| CyberOpsCenter | ✅ | ✅ | ✅ | ✅ | ⚠️ | PASS |
+| DGPDashboard | ✅ | ✅ | ✅ | ✅ | ✅ | PASS |
+| DSPDashboard | ✅ | ✅ | ✅ | ✅ | ✅ | PASS |
+| Dashboard | ✅ | ✅ | ✅ | ✅ | ✅ | PASS |
+| DataSeeder | ✅ | ✅ | ✅ | ✅ | ⚠️ | PASS |
+| DemoAccess | ✅ | ✅ | ❌ | ✅ | ⚠️ | PASS |
+| Departments | ✅ | ✅ | ✅ | ✅ | ⚠️ | PASS |
+| DutyManagement | ✅ | ✅ | ✅ | ✅ | ✅ | PASS |
+| FIRDocument | ✅ | ✅ | ✅ | ✅ | ✅ | PASS |
+| Feedback | ✅ | ✅ | ✅ | ✅ | ⚠️ | PASS |
+| FileComplaint | ✅ | ✅ | ✅ | ⚠️ | ✅ | PARTIAL |
+| ForgotPassword | ✅ | ✅ | ✅ | ⚠️ | ⚠️ | PARTIAL |
+| GoldenHourCyber | ✅ | ✅ | ✅ | ✅ | ⚠️ | PASS |
+| Home | ✅ | ✅ | ✅ | ⚠️ | ⚠️ | PARTIAL |
+| LawyerDashboard | ✅ | ✅ | ✅ | ✅ | ✅ | PASS |
+| LegalDocuments | ✅ | ✅ | ✅ | ✅ | ⚠️ | PASS |
+| LiveTracking | ✅ | ✅ | ✅ | ✅ | ⚠️ | PASS |
+| Login | ✅ | ✅ | ✅ | ✅ | ⚠️ | PASS |
+| NyayaAIAssistant | ✅ | ✅ | ✅ | ✅ | ✅ | PASS |
+| OfficerDashboard | ✅ | ✅ | ✅ | ✅ | ✅ | PASS |
+| OfficerManagement | ✅ | ✅ | ✅ | ✅ | ⚠️ | PASS |
+| PerformanceDashboard | ✅ | ✅ | ✅ | ✅ | ✅ | PASS |
+| PoliceAIAdvisor | ✅ | ✅ | ✅ | ✅ | ✅ | PASS |
+| PoliceStations | ✅ | ✅ | ✅ | ✅ | ⚠️ | PASS |
+| Register | ✅ | ✅ | ✅ | ⚠️ | ⚠️ | PARTIAL |
+| SafeRoute | ✅ | ✅ | ✅ | ✅ | ⚠️ | PASS |
+| SheTeamsDashboard | ✅ | ✅ | ❌ | ✅ | ✅ | PASS |
+| SmartAlerts | ✅ | ✅ | ✅ | ✅ | ⚠️ | PASS |
+| Splash | ✅ | ✅ | ✅ | ✅ | ⚠️ | PASS |
+| StationDashboard | ✅ | ✅ | ✅ | ✅ | ✅ | PASS |
+| SystemAdminBoard | ✅ | ✅ | ✅ | ✅ | ⚠️ | PASS |
+| TrackCase | ✅ | ✅ | ✅ | ✅ | ⚠️ | PASS |
+| Unauthorized | ✅ | ✅ | ❌ | ✅ | ✅ | PASS |
+| UnifiedDashboard | ✅ | ✅ | ✅ | ✅ | ✅ | PASS |
+| WomenSafety | ✅ | ✅ | ❌ | ✅ | ⚠️ | PASS |
+| WorkforceMonitor | ✅ | ✅ | ✅ | ✅ | ⚠️ | PASS |

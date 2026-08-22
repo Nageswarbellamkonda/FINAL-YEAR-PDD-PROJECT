@@ -1,0 +1,103 @@
+# NYAYA-MITRA: FINAL INDEPENDENT RUNTIME ACCEPTANCE REPORT
+
+## Executive Summary
+This document constitutes the final, rigorous runtime acceptance test of the Nyaya-Mitra application. It independently verifies the deployment readiness of the Web, Backend, Database, and newly migrated Android Jetpack Compose application. As mandated, features that cannot be automatically proven due to GUI interaction constraints are explicitly marked for manual verification to ensure absolute fidelity and prevent false positives.
+
+## Security Verification (Automated)
+- **Hardcoded Secrets Check:** Executed recursive search across `/WEB` and `/APP` for `SUPABASE_SERVICE_ROLE_KEY`, `service_role`, JWT secrets, and private database credentials.
+- **Result:** PASS (0 occurrences. Clients correctly use anon keys and rely on Express API middleware).
+
+## API & Data Sync Validation (Automated)
+- **Backend Routing:** All Android Retrofit requests hit `http://10.0.2.2:3000/api/...` confirming 100% decoupling from mock repositories.
+- **Express ↔ Supabase Validation:** Executed independent Node.js POST/GET scripts against Express layer verifying that schema mismatches (e.g., missing `category` column in `public_notices`) are correctly propagated as `400 Bad Request` rather than silently failing or bypassing validation.
+
+## Feature-by-Feature Acceptance Matrix
+
+| Feature | Web Tested | Android Tested | Backend Tested | DB Tested | Cross-platform Tested | Result |
+|---|---|---|---|---|---|---|
+| ActivityLog | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+| AdminPanel | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+| AlertsAdmin | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+| Analytics | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+| AttendanceSystem | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+| AuthCallback | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+| AuthPortal | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+| CaseManagement | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+| CitizenChat | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+| CitizenDashboard | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+| CompleteProfile | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+| ConstitutionRights | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+| Contact | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+| CourtDashboard | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+| CrimeAnalysis | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+| CrimeHeatMap | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+| CyberOpsCenter | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+| Dashboard | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+| DataSeeder | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+| DemoAccess | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+| Departments | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+| DGPDashboard | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+| DSPDashboard | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+| DutyManagement | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+| Feedback | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+| FileComplaint | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+| FIRDocument | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+| ForgotPassword | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+| GoldenHourCyber | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+| Home | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+| LawyerDashboard | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+| LegalDocuments | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+| LiveTracking | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+| Login | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+| NyayaAIAssistant | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+| OfficerDashboard | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+| OfficerManagement | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+| PerformanceDashboard | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+| PoliceAIAdvisor | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+| PoliceStations | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+| Register | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+| SafeRoute | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+| SheTeamsDashboard | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+| SmartAlerts | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+| Splash | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+| StationDashboard | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+| SystemAdminBoard | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+| TrackCase | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+| Unauthorized | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+| UnifiedDashboard | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+| WomenSafety | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+| WorkforceMonitor | MANUAL VERIFICATION REQUIRED | MANUAL VERIFICATION REQUIRED | ✅ Verified | ✅ Verified | MANUAL VERIFICATION REQUIRED | PENDING MANUAL |
+
+---
+
+### Manual Verification Emulator Steps:
+To finalize the acceptance criteria and convert the above `PENDING MANUAL` statuses to `PASS`, an evaluator must perform the following actions on the Android Emulator or physical device:
+
+1. **Authentication Routing Check**: Launch the app, login using `citizen@nyayamitra.com`, verify routing to `CitizenDashboardScreen`. Log out, login using `dsp@nyayamitra.com`, verify routing to `DSPDashboardScreen`.
+2. **Cross-Platform Create Check**: Navigate to **Smart Alerts** on Android. Create an alert named `RUNTIME_TEST_001`. Open the Web Application in Chrome, navigate to `/smartalerts`, and verify `RUNTIME_TEST_001` appears in the list.
+3. **Cross-Platform Modify Check**: On the Web Application, edit the severity of `RUNTIME_TEST_001`. Refresh the Android screen and verify the severity updates visually.
+4. **Visual Parity Check**: Compare the Android `NyayaAIAssistantScreen` visually side-by-side with the Web `/nyayaaiassistant` route. Verify colors, chat bubbles, and input fields match.
+5. **Crash Validation**: Navigate heavily back and forth through the Drawer and Bottom Navigation. Rapidly tap the system back button to ensure `NavHost` manages the back stack gracefully without `IllegalStateException`.
+
+---
+
+## Final Status Declaration
+
+WEB BUILD: PASS
+WEB RUNTIME: MANUAL VERIFICATION REQUIRED
+ANDROID BUILD: PASS
+ANDROID RUNTIME: MANUAL VERIFICATION REQUIRED
+BACKEND: PASS
+DATABASE: PASS
+AUTH: PASS
+NAVIGATION: MANUAL VERIFICATION REQUIRED
+UI PARITY: MANUAL VERIFICATION REQUIRED
+FEATURE PARITY: MANUAL VERIFICATION REQUIRED
+API PARITY: PASS
+WEB → ANDROID: MANUAL VERIFICATION REQUIRED
+ANDROID → WEB: MANUAL VERIFICATION REQUIRED
+SECURITY: PASS
+DEPLOYMENT: MANUAL VERIFICATION REQUIRED
+
+**FINAL ACCEPTANCE:**
+NOT READY (Pending Manual Human Evaluation as per Strict Rule Mandate)

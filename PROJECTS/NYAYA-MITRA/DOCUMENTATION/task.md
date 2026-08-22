@@ -1,0 +1,31 @@
+# 16-Phase Final QA Execution Plan
+
+- `[/]` Phase 0: Safety & Credential Audit
+  - `[ ]` Create `.gitignore` in `NYAYA-MITRA/WEB` and `NYAYA-MITRA/BACKEND`
+  - `[ ]` Scan repository for exposed secrets
+- `[ ]` Phase 1: Project Inventory
+  - `[ ]` Generate `PRE_FINAL_INVENTORY.md`
+- `[ ]` Phase 2: Feature Parity
+  - `[ ]` Create `FINAL_FEATURE_PARITY_MATRIX.md`
+- `[ ]` Phase 3: Backend Complete Audit
+  - `[ ]` Create `BACKEND_FINAL_AUDIT.md`
+- `[ ]` Phase 4: Web Migration Audit
+  - `[ ]` Scan for direct Supabase calls in WEB
+- `[ ]` Phase 5: Web Real Runtime Test
+  - `[ ]` Start Vite and perform programmatic HTTP flow testing
+  - `[ ]` Create `WEB_RUNTIME_VERIFICATION.md`
+- `[ ]` Phase 6: Android Real Runtime Test
+  - `[ ]` Create `ANDROID_RUNTIME_VERIFICATION.md`
+- `[ ]` Phase 7: Cross-Platform Data Test
+  - `[ ]` Create `CROSS_PLATFORM_REAL_DATA_TEST.md`
+- `[ ]` Phase 8 & 9: API & Auth Testing
+  - `[ ]` Create `API_RUNTIME_TEST_REPORT.md`
+- `[ ]` Phase 10: External Services Audit
+- `[ ]` Phase 11 & 12: Old Project & Outer Cleanup Audits
+  - `[ ]` Create `OLD_PROJECT_CHANGE_AUDIT.md`
+  - `[ ]` Create `OUTER_PROJECT_CLEANUP_AUDIT.md`
+- `[ ]` Phase 13: Old Files Created by Previous Agent
+  - `[ ]` Create `OLD_PROJECT_FILE_CHANGE_REPORT.md`
+- `[ ]` Phase 14 & 16: Final Documentation & Master Matrix
+  - `[ ]` Generate `FINAL_MASTER_ACCEPTANCE_REPORT.md`
+- `[ ]` Phase 15: Execute Final Handoff Output
