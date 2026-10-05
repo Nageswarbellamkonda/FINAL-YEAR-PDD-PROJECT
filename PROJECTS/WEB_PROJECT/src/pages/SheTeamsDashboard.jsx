@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
+import { useAuth } from '@/lib/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, CheckCircle2, Clock, Shield, MapPin, Phone, ArrowLeft, Loader2, Bell } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock, Shield, MapPin, Phone, ArrowLeft, Loader2, Bell, LogOut } from "lucide-react";
 import { motion } from "framer-motion";
 import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import L from "leaflet";
@@ -29,6 +30,7 @@ const statusConfig = {
 
 export default function SheTeamsDashboard() {
   const navigate = useNavigate();
+  const { logout } = useAuth();
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedSession, setSelectedSession] = useState(null);
@@ -87,9 +89,14 @@ export default function SheTeamsDashboard() {
           <h1 className="font-heading font-bold text-xl">SHE Teams — Live Monitoring Dashboard</h1>
           <p className="text-sm text-muted-foreground">Real-time women safety session monitoring</p>
         </div>
-        <Button size="sm" variant="outline" onClick={loadSessions} className="ml-auto gap-2">
-          <Bell className="w-4 h-4" /> Refresh
-        </Button>
+        <div className="ml-auto flex items-center gap-2">
+          <Button size="sm" variant="outline" onClick={loadSessions} className="gap-2">
+            <Bell className="w-4 h-4" /> Refresh
+          </Button>
+          <Button size="sm" variant="destructive" onClick={() => logout()} className="gap-1.5 shadow-sm">
+            <LogOut className="w-4 h-4" /> Logout
+          </Button>
+        </div>
       </div>
 
       {/* Stats */}

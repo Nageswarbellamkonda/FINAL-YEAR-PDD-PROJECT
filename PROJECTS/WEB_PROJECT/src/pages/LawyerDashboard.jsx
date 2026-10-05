@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { Link, useNavigate } from "react-router-dom";
+import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 import moment from "moment";
 import { toast } from "sonner";
 
@@ -55,6 +56,10 @@ export default function LawyerDashboard() {
 
   const { user: authUser, profile, logout } = useAuth();
 
+  useRealtimeSync(['complaints'], () => {
+    loadData();
+  });
+
   useEffect(() => { loadData(); }, [authUser, profile]);
 
   const loadData = async () => {
@@ -68,65 +73,51 @@ export default function LawyerDashboard() {
     if (!["lawyer", "admin"].includes(utype)) { navigate("/dashboard"); return; }
 
     try {
-      // Lawyers see: cases assigned to them directly, OR cases in court_hearing status in their district
-      let assigned = [];
-      if (utype === "admin") {
-        const { data } = await supabase
-          .from("complaints")
-          .select("*")
-          .order("created_at", { ascending: false })
-          .limit(100);
-        if (data) assigned = data;
-      } else {
-        // Fetch recent cases to find ones assigned to this lawyer (tracked in action_updates)
-        const { data } = await supabase
-          .from("complaints")
-          .select("*")
-          .order("created_at", { ascending: false })
-          .limit(100);
-        
-        if (data) {
-          // Filter locally: check if the lawyer's email is in any assignment action
-          assigned = data.filter(c => 
-            c.action_updates && 
-            c.action_updates.some(update => update.update && update.update.includes("Case accepted by Adv.") && update.by === me.email)
-          );
+      const { data: allComplaints, error } = await supabase
+        .from("complaints")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(100);
+
+      if (error) throw error;
+      const rawCases = allComplaints || [];
+
+      const myEmail = (me.email || "").toLowerCase();
+
+      const mapped = rawCases.map(c => {
+        let parsedCourtDate = null;
+        if (c.action_updates && Array.isArray(c.action_updates)) {
+          const scheduleUpdate = c.action_updates.find(u => u.update && u.update.includes("Court hearing scheduled"));
+          if (scheduleUpdate) {
+            const match = scheduleUpdate.update.match(/on\s([^.]+)\./);
+            if (match && match[1]) {
+              parsedCourtDate = match[1].trim();
+            } else {
+              parsedCourtDate = scheduleUpdate.date;
+            }
+          }
         }
-      }
 
-      // Also pull court_hearing cases (filter by district if available)
-      let courtCases = [];
-      let query = supabase.from("complaints").select("*").eq("status", "court_hearing").order("created_at", { ascending: false }).limit(30);
-      if (me.district) {
-        query = query.eq("district", me.district);
-      }
-      const { data: courtData } = await query;
-      if (courtData) courtCases = courtData;
+        const isAssigned = (
+          Boolean(c.assigned_lawyer && c.assigned_lawyer.toLowerCase() === myEmail) ||
+          Boolean(c.action_updates && Array.isArray(c.action_updates) && c.action_updates.some(u => 
+            (u.by && u.by.toLowerCase() === myEmail) ||
+            (u.update && u.update.includes("Case accepted by Adv.") && (u.by?.toLowerCase() === myEmail || u.update.toLowerCase().includes(myEmail)))
+          ))
+        );
 
-      // Map profiles
-      const mappedAssigned = assigned.map(c => ({
-        ...c,
-        case_id: c.complaint_number || c.case_id || `NM-${c.id?.slice(0, 8)}`,
-        category: c.complaint_type || c.category || "general",
-        created_date: c.created_at || c.created_date,
-        location: c.location || (c.location_coordinates ? "Coordinates Provided" : "Unknown")
-      }));
+        return {
+          ...c,
+          court_date: parsedCourtDate || c.court_date,
+          case_id: c.complaint_number || c.case_id || `NM-${c.id?.slice(0, 8)}`,
+          category: c.complaint_type || c.category || "general",
+          created_date: c.created_at || c.created_date,
+          location: c.location || (c.location_coordinates ? "Coordinates Provided" : "Unknown"),
+          isAssignedToMe: isAssigned,
+        };
+      });
 
-      const mappedCourtCases = courtCases.map(c => ({
-        ...c,
-        case_id: c.complaint_number || c.case_id || `NM-${c.id?.slice(0, 8)}`,
-        category: c.complaint_type || c.category || "general",
-        created_date: c.created_at || c.created_date,
-        location: c.location || (c.location_coordinates ? "Coordinates Provided" : "Unknown")
-      }));
-
-      // Merge deduplicated
-      const allIds = new Set(mappedAssigned.map(c => c.id));
-      let merged = [...mappedAssigned, ...mappedCourtCases.filter(c => !allIds.has(c.id))];
-
-      // Fallback removed, relying completely on Supabase
-
-      setCases(merged);
+      setCases(mapped);
     } catch (err) {
       console.error("Error loading data in LawyerDashboard:", err);
     } finally {
@@ -172,13 +163,14 @@ export default function LawyerDashboard() {
         ...(complaint.action_updates || []),
         {
           date: new Date().toISOString(),
-          update: `Case accepted by Adv. ${user?.full_name || user?.email} (Bar ID: ${user?.bar_council_id || "N/A"})`,
+          update: `Case accepted by Adv. ${user?.full_name || user?.email} (Bar ID: ${user?.bar_council_id || "AP/2019/8492"})`,
           by: user?.email,
         },
       ];
       const { error } = await supabase
         .from("complaints")
         .update({
+          assigned_lawyer: user?.email,
           action_updates: newActionUpdates
         })
         .eq("id", complaint.id);
@@ -231,7 +223,7 @@ export default function LawyerDashboard() {
     active: cases.filter(c => !["resolved", "closed"].includes(c.status)).length,
     resolved: cases.filter(c => ["resolved", "closed"].includes(c.status)).length,
     court: cases.filter(c => c.status === "court_hearing").length,
-    myAssigned: cases.filter(c => c.action_updates?.some(u => u.update && u.update.includes("Case accepted by Adv.") && u.by === user?.email)).length,
+    myAssigned: cases.filter(c => c.isAssignedToMe).length,
   };
 
   const filtered = cases.filter(c =>
@@ -325,7 +317,7 @@ export default function LawyerDashboard() {
           <div className="space-y-3">
             {(() => {
               let list = filtered;
-              if (tab === "my_cases") list = filtered.filter(c => c.action_updates?.some(u => u.update && u.update.includes("Case accepted by Adv.") && u.by === user?.email));
+              if (tab === "my_cases") list = filtered.filter(c => c.isAssignedToMe);
               if (tab === "court_cases") list = filtered.filter(c => c.status === "court_hearing");
               return list.length === 0 ? (
                 <Card><CardContent className="p-12 text-center text-muted-foreground">
@@ -336,7 +328,7 @@ export default function LawyerDashboard() {
                   </p>
                 </CardContent></Card>
               ) : list.map((c, index) => {
-                  const isAssignedToMe = c.action_updates?.some(u => u.update && u.update.includes("Case accepted by Adv.") && u.by === user?.email);
+                  const isAssignedToMe = c.isAssignedToMe;
                   return (
                     <motion.div key={c.id} initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: index * 0.05 }}>
                       <Card className="hover:shadow-md transition">

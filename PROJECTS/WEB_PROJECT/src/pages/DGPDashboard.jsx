@@ -13,7 +13,7 @@ import {
 } from "recharts";
 import {
   Shield, FileText, Bell, Users, Activity, TrendingUp, CheckCircle2, Clock, AlertTriangle, MapPin,
-  ArrowLeft, Loader2, RefreshCw, Trophy, Calendar, Settings2, Brain, Plus, X, Megaphone
+  ArrowLeft, Loader2, RefreshCw, Trophy, Calendar, Settings2, Brain, Plus, X, Megaphone, LogOut
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { ROLE_LABELS } from "@/lib/rbac";
@@ -61,7 +61,7 @@ export default function DGPDashboard() {
     todayDuties: 0
   });
 
-  const { user: authUser, profile } = useAuth();
+  const { user: authUser, profile, logout } = useAuth();
   
   // Realtime hook
   useRealtimeSync(['complaints', 'station_alerts', 'duty_assignments', 'cyber_crime_reports'], () => {
@@ -120,43 +120,53 @@ export default function DGPDashboard() {
         });
         const monthlyTrendData = Object.values(trendMap);
 
+        // 2. Fetch station alerts (raw for feed + count)
+        let alts = [];
+        const { data: altsData } = await supabase
+          .from("station_alerts")
+          .select("*")
+          .order("created_at", { ascending: false })
+          .limit(20);
+        if (altsData) alts = altsData;
+        setAlerts(alts);
+        const activeAlertsCount = alts.filter(a => a.is_active !== false).length;
+
+        // 3. Fetch duties for count
+        let duts = [];
+        const { data: dutData } = await supabase
+          .from("duty_assignments")
+          .select("*")
+          .order("created_at", { ascending: false })
+          .limit(100);
+        if (dutData) duts = dutData;
+        const todayDutiesCount = duts.length;
+
+        // 4. Fetch cyber crime cases (raw for feed)
+        let cyber = [];
+        const { data: cyberData } = await supabase
+          .from("cyber_crime_reports")
+          .select("*")
+          .order("created_at", { ascending: false })
+          .limit(10);
+        if (cyberData) {
+          cyber = cyberData.map(c => ({
+            ...c,
+            case_id: c.case_id || `NM-${c.id?.slice(0, 8)}`,
+            created_date: c.created_at || c.created_date
+          }));
+        }
+        setCyberCases(cyber);
+
         setDashboardData({
           stats: { total, resolved, pending, critical },
           distPerf,
           catData,
           trend: monthlyTrendData,
           distData: distPerf,
-          activeAlerts: 0, // Fallback since station_alerts is empty
-          todayDuties: 0   // Fallback since duty_assignments is empty
+          activeAlerts: activeAlertsCount,
+          todayDuties: todayDutiesCount
         });
       }
-
-      // 2. Fetch station alerts (raw for feed)
-      let alts = [];
-      const { data: altsData } = await supabase
-        .from("station_alerts")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .limit(10);
-      if (altsData) alts = altsData;
-      setAlerts(alts);
-
-      // 3. Fetch cyber crime cases (raw for feed)
-      let cyber = [];
-      const { data: cyberData } = await supabase
-        .from("cyber_crime_reports")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .limit(10);
-      if (cyberData) {
-        cyber = cyberData.map(c => ({
-          ...c,
-          case_id: c.case_id || `NM-${c.id?.slice(0, 8)}`,
-          created_date: c.created_at || c.created_date
-        }));
-      }
-      setCyberCases(cyber);
-
     } catch (err) {
       console.error("Error loading data in DGPDashboard:", err);
     } finally {
@@ -231,6 +241,9 @@ export default function DGPDashboard() {
           <Megaphone className="w-4 h-4" /> Publish Notice
         </Button>
         <Button variant="outline" size="sm" onClick={loadAll}><RefreshCw className="w-4 h-4" /></Button>
+        <Button variant="destructive" size="sm" onClick={() => logout()} className="gap-1.5 shadow-sm">
+          <LogOut className="w-4 h-4" /> Logout
+        </Button>
       </div>
 
       {/* KPI Row */}

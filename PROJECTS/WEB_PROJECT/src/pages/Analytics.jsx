@@ -16,6 +16,7 @@ export default function Analytics() {
     categoryData: [],
     priorityData: [],
     deptData: [],
+    statusData: [],
     stats: {}
   });
   const [loading, setLoading] = useState(true);
@@ -32,20 +33,129 @@ export default function Analytics() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const { data: rpcData, error } = await supabase.rpc('get_analytics_page_data', { days: parseInt(period) });
-      if (error) throw error;
       
-      if (rpcData) {
-        setData({
-          trendData: rpcData.trendData || [],
-          categoryData: (rpcData.categoryData || []).map(d => ({ ...d, name: d.name || 'Unknown' })),
-          priorityData: rpcData.priorityData || [],
-          deptData: (rpcData.deptData || []).map(d => ({ ...d, name: d.name || 'Unknown' })),
-          stats: rpcData.stats || {}
-        });
-      }
+      // Calculate date boundary based on selected period
+      const days = parseInt(period) || 30;
+      const cutoffDate = moment().subtract(days, 'days').toISOString();
+
+      const { data: complaints, error } = await supabase
+        .from('complaints')
+        .select('*')
+        .gte('created_at', cutoffDate)
+        .order('created_at', { ascending: true });
+
+      if (error) throw error;
+
+      const allComplaints = complaints || [];
+
+      // Compute Stats
+      const total = allComplaints.length;
+      let resolved = 0;
+      let pending = 0;
+      let escalated = 0;
+      let critical = 0;
+
+      // Grouping buckets
+      const dailyMap = {};
+      const catMap = {};
+      const prioMap = {};
+      const deptMap = {};
+      const statusMap = {};
+
+      allComplaints.forEach((c) => {
+        const status = (c.status || 'pending').toLowerCase();
+        const priority = (c.priority || 'normal').toLowerCase();
+        const cat = c.complaint_type || 'General';
+        const dept = c.police_station || c.district || 'General';
+        const dateKey = moment(c.created_at || new Date()).format('DD MMM');
+
+        if (status === 'resolved' || status === 'closed') {
+          resolved++;
+        } else if (status === 'filed' || status === 'pending' || status === 'under_review') {
+          pending++;
+        }
+
+        if (status === 'escalated' || priority === 'critical') {
+          escalated++;
+        }
+        if (priority === 'critical') {
+          critical++;
+        }
+
+        // Trend
+        dailyMap[dateKey] = (dailyMap[dateKey] || 0) + 1;
+
+        // Categories
+        catMap[cat] = (catMap[cat] || 0) + 1;
+
+        // Priorities
+        prioMap[priority] = (prioMap[priority] || 0) + 1;
+
+        // Department / Station
+        deptMap[dept] = (deptMap[dept] || 0) + 1;
+
+        // Status
+        const statusLabel = status.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+        statusMap[statusLabel] = (statusMap[statusLabel] || 0) + 1;
+      });
+
+      const trendData = Object.entries(dailyMap).map(([date, count]) => ({
+        date,
+        complaints: count
+      }));
+
+      const categoryData = Object.entries(catMap)
+        .map(([name, value]) => ({ name, value }))
+        .sort((a, b) => b.value - a.value);
+
+      const priorityColors = {
+        critical: '#dc2626',
+        high: '#ea580c',
+        medium: '#2563eb',
+        normal: '#0288d1',
+        low: '#16a34a'
+      };
+
+      const priorityData = Object.entries(prioMap).map(([name, value]) => ({
+        name: name.charAt(0).toUpperCase() + name.slice(1),
+        value,
+        color: priorityColors[name] || '#64748b'
+      }));
+
+      const deptData = Object.entries(deptMap)
+        .map(([name, value]) => ({ name, value }))
+        .sort((a, b) => b.value - a.value)
+        .slice(0, 8);
+
+      const statusData = Object.entries(statusMap)
+        .map(([name, value]) => ({ name, value }))
+        .sort((a, b) => b.value - a.value);
+
+      setData({
+        trendData,
+        categoryData,
+        priorityData,
+        deptData,
+        statusData,
+        stats: {
+          total,
+          resolved,
+          pending,
+          escalated,
+          critical
+        }
+      });
     } catch (err) {
       console.error("Error loading analytics:", err);
+      // Fallback safe state
+      setData({
+        trendData: [],
+        categoryData: [],
+        priorityData: [],
+        deptData: [],
+        statusData: [],
+        stats: { total: 0, resolved: 0, pending: 0, escalated: 0, critical: 0 }
+      });
     } finally {
       setLoading(false);
     }
@@ -65,7 +175,7 @@ export default function Analytics() {
     </div>
   );
 
-  const { trendData, priorityData, categoryData, deptData } = data;
+  const { trendData, priorityData, categoryData, deptData, statusData } = data;
 
   return (
     <div className="max-w-7xl mx-auto py-8 px-4">

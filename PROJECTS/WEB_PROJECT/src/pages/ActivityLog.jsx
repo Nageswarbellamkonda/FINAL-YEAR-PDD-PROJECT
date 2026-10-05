@@ -103,66 +103,82 @@ export default function ActivityLog() {
 
   const loadData = async () => {
     setLoading(true);
-    const me = profile ?? authUser ?? null;
-    setUser(me);
-    const jur = getJurisdiction(me?.user_type || me?.role);
+    try {
+      const me = profile ?? authUser ?? null;
+      setUser(me);
+      const jur = getJurisdiction(me?.user_type || me?.role);
 
-    let cQuery = supabase.from('complaints').select('*').order('updated_at', { ascending: false }).limit(50);
-    if (jur !== "all" && me?.district) cQuery = cQuery.eq('district', me.district);
-    const { data: complaints = [] } = await cQuery;
+      let cQuery = supabase.from('complaints').select('*').order('updated_at', { ascending: false }).limit(50);
+      if (jur !== "all" && me?.district) cQuery = cQuery.eq('district', me.district);
+      const { data: complaints = [] } = (await cQuery) || {};
 
-    let aQuery = supabase.from('station_alerts').select('*').order('created_at', { ascending: false }).limit(20);
-    if (jur !== "all" && me?.district) aQuery = aQuery.eq('district', me.district);
-    const { data: alerts = [] } = hasPermission(me?.user_type || me?.role, "PUBLISH_STATION_ALERT") ? await aQuery : { data: [] };
+      let aQuery = supabase.from('station_alerts').select('*').order('created_at', { ascending: false }).limit(20);
+      if (jur !== "all" && me?.district) aQuery = aQuery.eq('district', me.district);
+      const { data: alerts = [] } = hasPermission(me?.user_type || me?.role, "PUBLISH_STATION_ALERT") ? ((await aQuery) || {}) : { data: [] };
 
-    let dQuery = supabase.from('duty_assignments').select('*').order('created_at', { ascending: false }).limit(20);
-    if (jur !== "all" && me?.district) dQuery = dQuery.eq('district', me.district);
-    const { data: duties = [] } = hasPermission(me?.user_type || me?.role, "VIEW_DUTIES") ? await dQuery : { data: [] };
+      let dQuery = supabase.from('duty_assignments').select('*').order('created_at', { ascending: false }).limit(20);
+      if (jur !== "all" && me?.district) dQuery = dQuery.eq('district', me.district);
+      const { data: duties = [] } = hasPermission(me?.user_type || me?.role, "VIEW_DUTIES") ? ((await dQuery) || {}) : { data: [] };
 
+      // Build activity feed
+      const feed = [];
 
-    // Build activity feed
-    const feed = [];
-
-    complaints.forEach(c => {
-      feed.push({
-        id: "c-" + c.id,
-        type: "complaint",
-        title: c.title || "Complaint",
-        description: `${c.complaint_number} • Status: ${c.status?.replace("_", " ")} • ${c.district || c.police_station || "Unknown"}`,
-        event: c.priority === "urgent" || c.priority === "high" ? "escalate" : ["resolved","closed"].includes(c.status) ? "resolve" : c.assigned_to ? "assign" : "create",
-        time: c.updated_at || c.created_at,
-        by: c.assigned_to || c.user_id || "Citizen",
+      (complaints || []).forEach(c => {
+        feed.push({
+          id: "c-" + c.id,
+          type: "complaint",
+          title: c.title || "Complaint",
+          description: `${c.complaint_number || 'Case'} • Status: ${(c.status || 'filed').replace("_", " ")} • ${c.district || c.police_station || "Unknown"}`,
+          event: c.priority === "urgent" || c.priority === "critical" || c.priority === "high" ? "escalate" : ["resolved","closed"].includes(c.status) ? "resolve" : c.assigned_to ? "assign" : "create",
+          time: c.updated_at || c.created_at,
+          by: c.assigned_to || c.user_id || "Citizen",
+        });
       });
-    });
 
-    alerts.forEach(a => {
-      feed.push({
-        id: "a-" + a.id,
-        type: "alert",
-        title: a.title,
-        description: `${a.severity?.toUpperCase()} ${a.alert_type?.replace("_", " ")} • ${a.scope} level • ${a.district || "AP"}`,
-        event: "create",
-        time: a.created_at,
-        by: a.publisher_name || "System",
+      (alerts || []).forEach(a => {
+        feed.push({
+          id: "a-" + a.id,
+          type: "alert",
+          title: a.title,
+          description: `${(a.severity || 'info').toUpperCase()} ${(a.alert_type || 'alert').replace("_", " ")} • ${a.scope || 'general'} level • ${a.district || "AP"}`,
+          event: "create",
+          time: a.created_at,
+          by: a.publisher_name || "System",
+        });
       });
-    });
 
-    duties.forEach(d => {
-      feed.push({
-        id: "d-" + d.id,
-        type: "duty",
-        title: `Duty: ${d.duty_type?.replace("_", " ") || "Patrol"}`,
-        description: `${d.officer_name || d.officer_email} • ${d.station} • ${d.shift} shift`,
-        event: "assign",
-        time: d.created_at,
-        by: d.assigned_by || "System",
+      (duties || []).forEach(d => {
+        let meta = {};
+        try {
+          if (typeof d.notes === "string" && d.notes.startsWith("{")) {
+            meta = JSON.parse(d.notes);
+          }
+        } catch (e) {}
+
+        const dutyType = (meta.duty_type || d.duty_type || "Patrol").replace(/_/g, " ");
+        const station = d.police_station || d.location || "Station";
+        const shift = meta.shift || d.shift || "Assigned";
+        const assignedBy = meta.assigned_by || d.assigned_by || "DSP Office";
+
+        feed.push({
+          id: "d-" + d.id,
+          type: "duty",
+          title: `Duty: ${dutyType}`,
+          description: `${d.officer_name || d.officer_email || 'Officer'} • ${station} • ${shift} shift`,
+          event: "assign",
+          time: d.created_at,
+          by: assignedBy,
+        });
       });
-    });
 
-    // Sort by time descending
-    feed.sort((a, b) => new Date(b.time) - new Date(a.time));
-    setActivities(feed);
-    setLoading(false);
+      // Sort by time descending
+      feed.sort((a, b) => new Date(b.time || 0) - new Date(a.time || 0));
+      setActivities(feed);
+    } catch (err) {
+      console.error("ActivityLog error loading data:", err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const filtered = filter === "all"

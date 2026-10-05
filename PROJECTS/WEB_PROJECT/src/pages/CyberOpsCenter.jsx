@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import {
   Zap, Shield, TrendingUp, AlertTriangle, CheckCircle2, Clock,
-  Search, RefreshCw, Phone, DollarSign, ChevronRight, ArrowLeft, Loader2
+  Search, RefreshCw, Phone, DollarSign, ChevronRight, ArrowLeft, Loader2, LogOut
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
@@ -40,46 +40,105 @@ export default function CyberOpsCenter() {
 
   const DISTRICTS = ["Visakhapatnam", "Nellore", "Tirupati", "Guntur", "Krishna", "East Godavari", "West Godavari"];
 
-  const { user: authUser, profile } = useAuth();
+  const { user: authUser, profile, logout } = useAuth();
 
   useEffect(() => {
     loadData();
+
+    // Correct lifecycle: create channel -> register handlers -> subscribe
+    const channel = supabase
+      .channel(`cyber-ops-sync-${Math.random().toString(36).slice(2, 8)}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'cyber_crime_reports' },
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            setCases(prev => [payload.new, ...prev.filter(c => c.id !== payload.new.id)]);
+          } else if (payload.eventType === 'UPDATE') {
+            setCases(prev => prev.map(c => c.id === payload.new.id ? { ...c, ...payload.new } : c));
+          } else if (payload.eventType === 'DELETE') {
+            setCases(prev => prev.filter(c => c.id !== payload.old.id));
+          }
+        }
+      )
+      .subscribe((status, err) => {
+        if (err) console.warn("Cyber Ops realtime warning:", status, err);
+      });
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [authUser, profile]);
 
   const loadData = async () => {
-    const me = profile ?? authUser ?? null;
-    setUser(me);
-    const { data } = await supabase.from('cyber_crime_reports').select('*').order('created_at', { ascending: false }).limit(100);
-    let casesData = data || [];
-    // Fallback removed, relying completely on Supabase
-    setCases(casesData);
-    setLoading(false);
+    try {
+      const me = profile ?? authUser ?? null;
+      setUser(me);
+      const { data, error } = await supabase
+        .from('cyber_crime_reports')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(100);
+      if (error) console.error("Error fetching cyber crime reports:", error);
+      setCases(data || []);
+    } catch (err) {
+      console.error("CyberOpsCenter loadData error:", err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const updateStatus = async (id, status) => {
     setUpdatingId(id);
-    await supabase.from('cyber_crime_reports').update({ recovery_status: status }).eq('id', id);
-    toast.success("Status updated");
-    setCases(prev => prev.map(c => c.id === id ? { ...c, recovery_status: status } : c));
-    setUpdatingId(null);
+    try {
+      const { error } = await supabase
+        .from('cyber_crime_reports')
+        .update({ recovery_status: status })
+        .eq('id', id);
+      if (error) throw error;
+      toast.success("Status updated");
+      setCases(prev => prev.map(c => c.id === id ? { ...c, recovery_status: status } : c));
+    } catch (err) {
+      console.error("Error updating recovery status:", err);
+      toast.error("Failed to update status");
+    } finally {
+      setUpdatingId(null);
+    }
   };
 
+  const getDistrict = (c) => c.district || c.victim_district || "General";
+  const getCaseId = (c) => c.case_number || c.case_id || (c.id ? c.id.slice(0, 8) : "N/A");
+
   const filtered = cases.filter(c => {
-    const matchSearch = !search || c.victim_name?.toLowerCase().includes(search.toLowerCase()) || c.case_id?.toLowerCase().includes(search.toLowerCase()) || c.fraud_type?.toLowerCase().includes(search.toLowerCase());
-    const matchDistrict = filterDistrict === "all" || c.district === filterDistrict;
-    const matchStatus = filterStatus === "all" || c.recovery_status === filterStatus;
+    const d = getDistrict(c).toLowerCase();
+    const cid = getCaseId(c).toLowerCase();
+    const vname = (c.victim_name || "").toLowerCase();
+    const ftype = (c.fraud_type || "").toLowerCase();
+    const q = search.toLowerCase();
+
+    const matchSearch = !search || vname.includes(q) || cid.includes(q) || ftype.includes(q) || d.includes(q);
+    const matchDistrict = filterDistrict === "all" || d === filterDistrict.toLowerCase();
+    const matchStatus = filterStatus === "all" || (c.recovery_status || "reported") === filterStatus;
     return matchSearch && matchDistrict && matchStatus;
   });
 
   // Analytics
-  const totalLost = cases.reduce((s, c) => s + (c.amount_lost || 0), 0);
-  const totalRecovered = cases.reduce((s, c) => s + (c.amount_recovered || 0), 0);
+  const totalLost = cases.reduce((s, c) => s + (Number(c.amount_lost) || 0), 0);
+  const totalRecovered = cases.reduce((s, c) => s + (Number(c.amount_recovered) || 0), 0);
   const fraudTypeData = Object.entries(
-    cases.reduce((acc, c) => { acc[c.fraud_type || "Unknown"] = (acc[c.fraud_type || "Unknown"] || 0) + 1; return acc; }, {})
+    cases.reduce((acc, c) => {
+      const ft = c.fraud_type || "Other Fraud";
+      acc[ft] = (acc[ft] || 0) + 1;
+      return acc;
+    }, {})
   ).map(([name, value]) => ({ name: name.length > 16 ? name.slice(0, 16) + "…" : name, value }));
 
   const districtData = Object.entries(
-    cases.reduce((acc, c) => { acc[c.district || "Unknown"] = (acc[c.district || "Unknown"] || 0) + 1; return acc; }, {})
+    cases.reduce((acc, c) => {
+      const dist = getDistrict(c);
+      acc[dist] = (acc[dist] || 0) + 1;
+      return acc;
+    }, {})
   ).map(([name, value]) => ({ name, value }));
 
   if (loading) return (
@@ -104,9 +163,14 @@ export default function CyberOpsCenter() {
             <p className="text-muted-foreground text-xs">Real-time fraud monitoring & recovery tracking — AP Pilot Districts</p>
           </div>
         </div>
-        <Button onClick={loadData} variant="outline" size="sm" className="gap-2">
-          <RefreshCw className="w-4 h-4" /> Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button onClick={loadData} variant="outline" size="sm" className="gap-2">
+            <RefreshCw className="w-4 h-4" /> Refresh
+          </Button>
+          <Button onClick={() => logout()} variant="destructive" size="sm" className="gap-1.5 shadow-sm">
+            <LogOut className="w-4 h-4" /> Logout
+          </Button>
+        </div>
       </div>
 
       {/* KPI Cards */}
@@ -208,13 +272,13 @@ export default function CyberOpsCenter() {
                   const stage = RECOVERY_STAGES.find(s => s.value === c.recovery_status);
                   return (
                     <tr key={c.id} className={`border-b hover:bg-muted/30 transition ${i % 2 === 0 ? "" : "bg-muted/10"}`}>
-                      <td className="px-4 py-3 font-mono text-muted-foreground">{c.case_id || c.id.slice(0, 8)}</td>
+                      <td className="px-4 py-3 font-mono text-muted-foreground">{getCaseId(c)}</td>
                       <td className="px-4 py-3">
-                        <div className="font-medium">{c.victim_name}</div>
-                        <div className="text-muted-foreground">{c.victim_phone}</div>
+                        <div className="font-medium">{c.victim_name || "Complainant"}</div>
+                        <div className="text-muted-foreground">{c.victim_phone || "N/A"}</div>
                       </td>
                       <td className="px-4 py-3">{c.fraud_type}</td>
-                      <td className="px-4 py-3">{c.district}</td>
+                      <td className="px-4 py-3">{getDistrict(c)}</td>
                       <td className="px-4 py-3 font-semibold text-red-600">₹{c.amount_lost?.toLocaleString()}</td>
                       <td className="px-4 py-3">
                         <Select value={c.recovery_status || "reported"} onValueChange={(v) => updateStatus(c.id, v)}

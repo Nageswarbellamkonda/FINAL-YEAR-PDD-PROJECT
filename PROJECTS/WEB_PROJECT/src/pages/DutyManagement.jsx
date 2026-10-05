@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
-import { hasPermission, isOfficerRole, ROLE_LABELS, getJurisdiction } from "@/lib/rbac";
+import { hasPermission, isOfficerRole, ROLE_LABELS, getJurisdiction, normalizeRole } from "@/lib/rbac";
 import { Calendar, Shield, Plus, ArrowLeft, Loader2, CheckCircle2, Clock, MapPin, Trash2, RefreshCw } from "lucide-react";
 import { Link } from "react-router-dom";
 import moment from "moment";
@@ -31,6 +31,7 @@ export default function DutyManagement() {
     officer_email: "", officer_name: "", duty_type: "patrol",
     duty_date: moment().format("YYYY-MM-DD"), shift: "morning",
     start_time: "06:00", end_time: "14:00", location: "", notes: "",
+    police_station: "", district: "",
     geo_lat: "", geo_lng: "", geo_radius_m: 500,
   });
 
@@ -39,73 +40,182 @@ export default function DutyManagement() {
 
   const { user: authUser, profile } = useAuth();
 
-  useEffect(() => { loadData(); }, [dateFilter, authUser, profile]);
+  const parseDuty = (d) => {
+    let extra = {};
+    if (d.notes) {
+      try {
+        if (typeof d.notes === 'string' && d.notes.trim().startsWith('{')) {
+          extra = JSON.parse(d.notes);
+        } else if (typeof d.notes === 'object' && d.notes !== null) {
+          extra = d.notes;
+        }
+      } catch (e) {
+        // Plain text notes
+      }
+    }
+    return {
+      ...d,
+      duty_type: d.duty_type || extra.duty_type || 'patrol',
+      shift: d.shift || extra.shift || 'morning',
+      duty_date: d.duty_date || extra.duty_date || (d.created_at ? d.created_at.slice(0, 10) : ''),
+      start_time: d.start_time || extra.start_time || '',
+      end_time: d.end_time || extra.end_time || '',
+      instructions: extra.text || extra.original_notes || extra.special_instructions || (typeof d.notes === 'string' && !d.notes.trim().startsWith('{') ? d.notes : ''),
+    };
+  };
+
+  useEffect(() => {
+    loadData();
+    // Realtime sync for duties
+    const channel = supabase.channel('duty-mgmt-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'duty_assignments' }, () => {
+        loadData();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [dateFilter, authUser, profile]);
 
   const loadData = async () => {
     setLoading(true);
     const me = profile ?? authUser ?? null;
     setUser(me);
-    const role = me?.user_type || me?.role || "citizen";
-    let query = supabase.from('duty_assignments')
-      .select('*, officer:user_profiles!duty_assignments_officer_id_fkey(id, email, full_name, role)')
-      .order('created_at', { ascending: false })
-      .gte('start_time', `${dateFilter}T00:00:00Z`)
-      .lte('start_time', `${dateFilter}T23:59:59Z`);
+    const role = normalizeRole(me?.user_type || me?.role || "citizen");
+    const myStation = me?.police_station || me?.station;
 
-    if (["admin","dgp","adg","ig","dig"].includes(role)) {
-      query = query.limit(100);
-    } else if (["sp","dsp"].includes(role)) {
-      query = query.limit(100);
-    } else if (role === "ci") {
-      query = query.limit(50);
-    } else if (role === "si") {
-      if (!me?.station) query = query.eq('officer_id', me?.id);
-      query = query.limit(50);
-    } else {
-      query = query.eq('officer_id', me?.id).limit(30);
+    try {
+      let query = supabase.from('duty_assignments')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (["admin", "dgp", "adg", "ig", "dig"].includes(role)) {
+        query = query.limit(100);
+      } else if (["sp", "dsp"].includes(role)) {
+        if (me?.district) query = query.eq('district', me.district);
+        query = query.limit(100);
+      } else if (["ci", "si"].includes(role)) {
+        if (myStation && me?.email) {
+          query = query.or(`officer_email.eq.${me.email},police_station.eq.${myStation}`);
+        } else if (me?.district && me?.email) {
+          query = query.or(`officer_email.eq.${me.email},district.eq.${me.district}`);
+        } else if (me?.email) {
+          query = query.eq('officer_email', me.email);
+        }
+        query = query.limit(50);
+      } else {
+        query = query.eq('officer_email', me?.email).limit(50);
+      }
+
+      const { data, error } = await query;
+      if (error) {
+        console.error("Error fetching duties in DutyManagement:", error);
+      }
+      const rawDuties = data || [];
+      const parsed = rawDuties.map(parseDuty);
+      setDuties(parsed);
+    } catch (err) {
+      console.error("Unexpected error in DutyManagement loadData:", err);
+      setDuties([]);
+    } finally {
+      setLoading(false);
     }
-    const { data = [] } = await query;
-    setDuties(data || []);
-    setLoading(false);
   };
 
   const assignDuty = async () => {
-    if (!form.officer_email || !form.duty_type) { toast.error("Officer email and duty type are required"); return; }
+    if (!form.officer_email || !form.duty_type) {
+      toast.error("Officer email and duty type are required");
+      return;
+    }
     setSaving(true);
-    const { data: officer } = await supabase.from('user_profiles').select('id').eq('email', form.officer_email).single();
-    if (!officer?.id) { toast.error("Officer not found"); setSaving(false); return; }
+    try {
+      let officerName = form.officer_name;
+      let officerDistrict = form.district || user?.district || '';
+      let officerStation = form.police_station || user?.police_station || user?.station || '';
 
-    await supabase.from('duty_assignments').insert([{
-      officer_id: officer.id,
-      assigned_by: user.id,
-      duty_type: form.duty_type,
-      shift: form.shift,
-      location: form.location,
-      start_time: `${form.duty_date}T${form.start_time}:00Z`,
-      end_time: `${form.duty_date}T${form.end_time}:00Z`,
-      status: "scheduled",
-      notes: form.notes,
-    }]);
-    toast.success("Duty assigned successfully!");
-    setShowForm(false);
-    setSaving(false);
-    loadData();
+      const { data: officer } = await supabase
+        .from('user_profiles')
+        .select('*')
+        .eq('email', form.officer_email.trim())
+        .maybeSingle();
+
+      if (officer) {
+        officerName = officerName || officer.full_name;
+        if (!officerDistrict) officerDistrict = officer.district || '';
+        if (!officerStation) officerStation = officer.police_station || officer.station || '';
+      }
+
+      const notesPayload = JSON.stringify({
+        duty_type: form.duty_type,
+        shift: form.shift,
+        duty_date: form.duty_date,
+        start_time: `${form.duty_date}T${form.start_time}:00Z`,
+        end_time: `${form.duty_date}T${form.end_time}:00Z`,
+        text: form.notes || '',
+        assigned_by: user?.email || user?.full_name || 'Higher Official',
+      });
+
+      const { error: insertErr } = await supabase.from('duty_assignments').insert([{
+        officer_email: form.officer_email.trim(),
+        officer_name: officerName || form.officer_email.trim(),
+        district: officerDistrict,
+        police_station: officerStation,
+        location: form.location || 'Assigned Beat / Zone',
+        status: "scheduled",
+        notes: notesPayload,
+      }]);
+
+      if (insertErr) {
+        console.error("Failed to assign duty:", insertErr);
+        toast.error("Failed to assign duty: " + insertErr.message);
+        return;
+      }
+
+      toast.success("Duty assigned successfully!");
+      setShowForm(false);
+      setForm(p => ({ ...p, location: "", notes: "" }));
+      loadData();
+    } catch (err) {
+      console.error("Error assigning duty:", err);
+      toast.error("An unexpected error occurred while assigning duty");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const updateStatus = async (id, status) => {
-    await supabase.from('duty_assignments').update({ status }).eq('id', id);
-    toast.success("Duty status updated");
-    loadData();
+    try {
+      const { error } = await supabase.from('duty_assignments').update({ status }).eq('id', id);
+      if (error) throw error;
+      toast.success(`Duty marked as ${status}`);
+      loadData();
+    } catch (err) {
+      console.error("Error updating duty status:", err);
+      toast.error("Failed to update status");
+    }
   };
 
   const deleteDuty = async (id) => {
-    await supabase.from('duty_assignments').delete().eq('id', id);
-    toast.success("Duty removed");
-    loadData();
+    try {
+      const { error } = await supabase.from('duty_assignments').delete().eq('id', id);
+      if (error) throw error;
+      toast.success("Duty removed");
+      loadData();
+    } catch (err) {
+      console.error("Error deleting duty:", err);
+      toast.error("Failed to delete duty");
+    }
   };
 
-  const myDuties = duties.filter(d => d.officer?.email === user?.email || d.officer_id === user?.id);
-  const otherDuties = duties.filter(d => d.officer?.email !== user?.email && d.officer_id !== user?.id);
+  const filteredDuties = dateFilter
+    ? duties.filter(d => !d.duty_date || d.duty_date === dateFilter || d.created_at?.slice(0, 10) === dateFilter)
+    : duties;
+
+  const displayDuties = filteredDuties.length > 0 ? filteredDuties : duties;
+
+  const myDuties = displayDuties.filter(d => d.officer_email === user?.email);
+  const otherDuties = displayDuties.filter(d => d.officer_email !== user?.email);
 
   if (loading) return <div className="flex items-center justify-center min-h-[60vh]"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
 
@@ -149,7 +259,13 @@ export default function DutyManagement() {
                 <CardTitle className="text-sm flex items-center justify-between">
                   Assign New Duty
                   <button
-                    onClick={() => setForm(p => ({...p, officer_email: user.email, officer_name: user.full_name || ""}))}
+                    onClick={() => setForm(p => ({
+                      ...p,
+                      officer_email: user.email,
+                      officer_name: user.full_name || "",
+                      police_station: user.police_station || user.station || "",
+                      district: user.district || ""
+                    }))}
                     className="text-[10px] px-2 py-1 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition font-medium"
                   >
                     + Use My Details
@@ -165,6 +281,14 @@ export default function DutyManagement() {
                   <div>
                     <Label className="text-xs">Officer Name</Label>
                     <Input value={form.officer_name} onChange={e => setForm(p => ({...p, officer_name: e.target.value}))} placeholder="Full name" />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Police Station</Label>
+                    <Input value={form.police_station} onChange={e => setForm(p => ({...p, police_station: e.target.value}))} placeholder="e.g. MVP Colony PS, Alipiri PS" />
+                  </div>
+                  <div>
+                    <Label className="text-xs">District</Label>
+                    <Input value={form.district} onChange={e => setForm(p => ({...p, district: e.target.value}))} placeholder="e.g. Visakhapatnam, Tirupati" />
                   </div>
                   <div>
                     <Label className="text-xs">Duty Type *</Label>
@@ -254,6 +378,10 @@ export default function DutyManagement() {
 }
 
 function DutyCard({ duty, isOwn, canManage, onStatus, onDelete }) {
+  const displayTime = duty.start_time
+    ? (duty.start_time.includes('T') ? `${moment(duty.start_time).format("HH:mm")}–${moment(duty.end_time).format("HH:mm")}` : `${duty.start_time}–${duty.end_time}`)
+    : "";
+
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
       className={`border rounded-xl p-3.5 ${isOwn ? "border-primary/30 bg-primary/5" : "border-border bg-card"}`}>
@@ -262,17 +390,17 @@ function DutyCard({ duty, isOwn, canManage, onStatus, onDelete }) {
           <div className="flex items-center gap-2 flex-wrap mb-1">
             <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold capitalize ${STATUS_COLORS[duty.status] || ""}`}>{duty.status}</span>
             <Badge variant="outline" className="text-[10px] capitalize">{duty.duty_type?.replace("_"," ")}</Badge>
-            <Badge variant="outline" className="text-[10px]">{SHIFT_LABELS[duty.shift]?.split(" ")[0]} {SHIFT_LABELS[duty.shift]?.split(" ")[1] || ""}</Badge>
+            {duty.shift && <Badge variant="outline" className="text-[10px]">{SHIFT_LABELS[duty.shift]?.split(" ")[0] || duty.shift} {SHIFT_LABELS[duty.shift]?.split(" ")[1] || ""}</Badge>}
           </div>
-          <p className="font-medium text-sm">{duty.officer?.full_name || duty.officer?.email || duty.officer_id}</p>
+          <p className="font-medium text-sm">{duty.officer_name || duty.officer_email || "Assigned Officer"}</p>
           <div className="flex flex-wrap gap-x-3 text-xs text-muted-foreground mt-0.5">
             {duty.location && <span className="flex items-center gap-1"><MapPin className="w-3 h-3" />{duty.location}</span>}
-            {duty.start_time && <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{moment(duty.start_time).format("HH:mm")}–{moment(duty.end_time).format("HH:mm")}</span>}
-            {duty.station && <span>{duty.station}</span>}
+            {displayTime && <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{displayTime}</span>}
+            {(duty.police_station || duty.district) && <span>{duty.police_station ? `${duty.police_station} • ` : ""}{duty.district || ""}</span>}
           </div>
-          {duty.notes && <p className="text-xs text-muted-foreground mt-1 italic">{duty.notes}</p>}
+          {duty.instructions && <p className="text-xs text-muted-foreground mt-1 italic">{duty.instructions}</p>}
         </div>
-        {canManage && (
+        {(canManage || isOwn) && (
           <div className="flex gap-1.5 flex-shrink-0">
             {duty.status === "scheduled" && (
               <button onClick={() => onStatus(duty.id, "active")} className="text-[10px] px-2 py-1 rounded-lg bg-green-100 text-green-700 hover:bg-green-200 transition font-medium">Activate</button>
@@ -280,9 +408,11 @@ function DutyCard({ duty, isOwn, canManage, onStatus, onDelete }) {
             {duty.status === "active" && (
               <button onClick={() => onStatus(duty.id, "completed")} className="text-[10px] px-2 py-1 rounded-lg bg-blue-100 text-blue-700 hover:bg-blue-200 transition font-medium">Complete</button>
             )}
-            <button onClick={() => onDelete(duty.id)} className="w-7 h-7 flex items-center justify-center rounded-lg text-red-400 hover:bg-red-50 transition">
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
+            {canManage && (
+              <button onClick={() => onDelete(duty.id)} className="w-7 h-7 flex items-center justify-center rounded-lg text-red-400 hover:bg-red-50 transition" title="Delete Duty">
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
         )}
       </div>

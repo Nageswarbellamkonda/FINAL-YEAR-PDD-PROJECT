@@ -1,91 +1,115 @@
-import { useState, useEffect } from "react";
-import { supabase } from "@/lib/supabase";
-import { useRealtimeSync } from "@/hooks/useRealtimeSync";
+import { useState, useEffect, useCallback } from "react";
+import { fetchPublicNotices, subscribeAlertsRealtime } from "@/lib/alertsSync";
 import { motion, AnimatePresence } from "framer-motion";
-import { Bell, ChevronDown, ChevronUp, AlertTriangle, Search, Star, TreePine, MapPin } from "lucide-react";
+import { Bell, ChevronDown, ChevronUp, AlertTriangle, Search, Star, TreePine, MapPin, ShieldAlert, Loader2 } from "lucide-react";
 import { useLanguage } from "@/lib/LanguageContext";
-
-const defaultNotices = [
-  {
-    id: 1,
-    type: "missing",
-    icon: Search,
-    color: "bg-blue-50 border-blue-200 text-blue-800",
-    iconColor: "text-blue-600",
-    badge: "MISSING PERSON",
-    badgeColor: "bg-blue-100 text-blue-700",
-    district: "Visakhapatnam",
-    titleEn: "Missing: Ravi Kumar, 34 yrs — Visakhapatnam",
-    titleTe: "నాపత్తా: రవి కుమార్, 34 సం. — విశాఖపట్నం",
-    descEn: "Missing since 15-Mar-2026. Last seen near Rythu Bazaar, Gajuwaka. Height: 5'7\", fair complexion. Contact: 0891-2888100 or nearest police station.",
-    descTe: "15-మార్చ్-2026 నుండి నాపత్తా. చివరిగా గాజువాక రైతు బజార్ సమీపంలో చూశారు. ఎత్తు: 5'7\". సంప్రదించండి: 0891-2888100.",
-    date: "2026-03-20",
-  },
-  {
-    id: 2,
-    type: "reward",
-    icon: Star,
-    color: "bg-yellow-50 border-yellow-200 text-yellow-800",
-    iconColor: "text-yellow-600",
-    badge: "REWARD ANNOUNCED",
-    badgeColor: "bg-yellow-100 text-yellow-700",
-    district: "Kurnool",
-    titleEn: "₹50,000 Reward — Information on Kurnool Bank Robbery Suspects",
-    titleTe: "₹50,000 బహుమతి — కర్నూలు బ్యాంక్ దోపిడీ నిందితులపై సమాచారానికి",
-    descEn: "AP Police announces ₹50,000 reward for credible information leading to arrest of 3 suspects in State Bank robbery at Nandyal, Kurnool. Informers identity protected. Call: 1090.",
-    descTe: "నందాల, కర్నూలులో స్టేట్ బ్యాంక్ దోపిడీలో 3 నిందితుల అరెస్ట్ కు దారితీసే నమ్మకమైన సమాచారానికి AP పోలీసులు ₹50,000 బహుమతి ప్రకటిస్తున్నారు. కాల్: 1090.",
-    date: "2026-03-18",
-  }
-];
 
 export default function NoticeBoard() {
   const { lang } = useLanguage();
   
   const [expanded, setExpanded] = useState(null);
   const [filter, setFilter] = useState("all");
-  const [notices, setNotices] = useState(defaultNotices);
-  
-  // Load dynamic notices
-  useRealtimeSync(['public_notices'], () => {
-    loadNotices();
-  });
+  const [notices, setNotices] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  const loadNotices = useCallback(async () => {
+    try {
+      const data = await fetchPublicNotices();
+      const mapped = (data || []).map((n) => {
+        const type = (n.target_audience?.notice_type || n.alert_type || 'advisory').toLowerCase();
+        const sev = (n.severity || 'medium').toLowerCase();
+
+        let badge = n.target_audience?.badge;
+        let badgeColor = "bg-blue-100 text-blue-700";
+        let color = "bg-blue-50 border-blue-200 text-blue-800";
+        let iconColor = "text-blue-600";
+
+        if (type === "missing") {
+          badge = badge || "MISSING PERSON";
+          badgeColor = "bg-blue-100 text-blue-700";
+          color = "bg-blue-50 border-blue-200 text-blue-800";
+          iconColor = "text-blue-600";
+        } else if (type === "reward") {
+          badge = badge || "REWARD ANNOUNCED";
+          badgeColor = "bg-amber-100 text-amber-800";
+          color = "bg-amber-50 border-amber-200 text-amber-800";
+          iconColor = "text-amber-600";
+        } else if (type === "naxal" || sev === "critical" || type === "emergency") {
+          badge = badge || (sev === "critical" ? "CRITICAL ALERT" : "EMERGENCY");
+          badgeColor = "bg-red-100 text-red-700";
+          color = "bg-red-50 border-red-200 text-red-800";
+          iconColor = "text-red-600";
+        } else if (type === "forest") {
+          badge = badge || "FOREST ADVISORY";
+          badgeColor = "bg-emerald-100 text-emerald-700";
+          color = "bg-emerald-50 border-emerald-200 text-emerald-800";
+          iconColor = "text-emerald-600";
+        } else {
+          badge = badge || (n.alert_type ? n.alert_type.toUpperCase().replace('_', ' ') : "PUBLIC NOTICE");
+          badgeColor = "bg-slate-100 text-slate-700";
+          color = "bg-slate-50 border-slate-200 text-slate-800";
+          iconColor = "text-primary";
+        }
+
+        return {
+          id: n.id,
+          type,
+          district: n.district || "All AP",
+          titleEn: n.title,
+          titleTe: n.target_audience?.title_te || n.title,
+          descEn: n.message,
+          descTe: n.target_audience?.desc_te || n.message,
+          badge,
+          badgeColor,
+          color,
+          iconColor,
+          date: n.created_at ? n.created_at.split('T')[0] : ''
+        };
+      });
+
+      setNotices(mapped);
+      setError(null);
+    } catch (err) {
+      console.error("[NoticeBoard] Failed to load notices:", err);
+      setError("Failed to load public notices");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     loadNotices();
-  }, []);
-
-  const loadNotices = async () => {
+    // Subscribe to realtime database changes & broadcasts safely
+    let unsubscribe = () => {};
     try {
-      const { data, error } = await supabase.from('public_notices').select('*').order('created_at', { ascending: false });
-      if (data && !error) {
-        // Map snake_case from DB to camelCase used in UI
-        const mapped = data.map(n => ({
-          id: n.id,
-          type: n.type,
-          district: n.district,
-          titleEn: n.title_en,
-          titleTe: n.title_te || n.title_en,
-          descEn: n.desc_en,
-          descTe: n.desc_te || n.desc_en,
-          badge: n.badge,
-          badgeColor: n.badge_color,
-          color: n.color,
-          iconColor: n.icon_color,
-          date: n.created_at?.split('T')[0]
-        }));
-        setNotices([...mapped, ...defaultNotices]);
-      }
+      unsubscribe = subscribeAlertsRealtime(() => {
+        console.log("[NoticeBoard] Realtime update triggered reloading notices");
+        loadNotices();
+      });
     } catch (err) {
-      console.error("Failed to load public notices:", err);
+      console.warn("[NoticeBoard] Realtime subscription failed gracefully:", err);
     }
-  };
+
+    return () => {
+      if (typeof unsubscribe === "function") {
+        try {
+          unsubscribe();
+        } catch (e) {
+          // ignore
+        }
+      }
+    };
+  }, [loadNotices]);
 
   const getIcon = (type) => {
     switch (type) {
       case "missing": return Search;
       case "reward": return Star;
-      case "naxal": return AlertTriangle;
+      case "naxal":
+      case "emergency": return AlertTriangle;
       case "forest": return TreePine;
+      case "crime_alert": return ShieldAlert;
       default: return Bell;
     }
   };
@@ -94,11 +118,18 @@ export default function NoticeBoard() {
     { key: "all", label: lang === "te" ? "అన్నీ" : "All" },
     { key: "missing", label: lang === "te" ? "నాపత్తా" : "Missing" },
     { key: "reward", label: lang === "te" ? "బహుమతి" : "Rewards" },
-    { key: "naxal", label: lang === "te" ? "నక్సల్" : "Naxal Alert" },
-    { key: "forest", label: lang === "te" ? "అడవి" : "Forest" },
+    { key: "emergency", label: lang === "te" ? "అత్యవసరం" : "Emergency" },
+    { key: "advisory", label: lang === "te" ? "సూచనలు" : "Advisories" },
   ];
 
-  const filtered = filter === "all" ? notices : notices.filter((n) => n.type === filter);
+  const filtered = filter === "all"
+    ? notices
+    : notices.filter((n) => {
+        if (n.type === filter) return true;
+        if (filter === "emergency" && (n.type === "naxal" || n.type === "emergency" || n.type === "crime_alert")) return true;
+        if (filter === "advisory" && (n.type === "advisory" || n.type === "forest" || n.type === "cyber_crime")) return true;
+        return false;
+      });
 
   return (
     <div className="bg-card rounded-2xl border border-border shadow-sm overflow-hidden relative">
@@ -110,15 +141,16 @@ export default function NoticeBoard() {
           </div>
           <div>
             <h2 className="text-white font-heading font-bold text-base">
-              {lang === "te" ? "AP పోలీసు నోటీసు బోర్డు" : "AP Police Public Notice Board"}
+              {lang === "te" ? "AP పోలీసు పబ్లిక్ నోటీసు బోర్డు" : "AP Police Public Notice Board"}
             </h2>
             <p className="text-white/70 text-xs">
-              {lang === "te" ? "13 జిల్లాల్లో పబ్లిక్ సూచనలు" : "Public advisories & alerts"}
+              {lang === "te" ? "DSP ద్వారా ప్రత్యక్షంగా ప్రచురించబడిన నోటీసులు" : "Official district & public advisories published by DSP"}
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          <span className="bg-secondary text-white text-[10px] font-bold px-2 py-0.5 rounded-full animate-pulse tracking-wide">
+        <div className="flex items-center gap-2">
+          <span className="bg-emerald-500 text-white text-[10px] font-bold px-2.5 py-0.5 rounded-full animate-pulse tracking-wide flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping"></span>
             LIVE
           </span>
         </div>
@@ -141,13 +173,27 @@ export default function NoticeBoard() {
         ))}
       </div>
 
-      {/* Notices */}
-      <div className="divide-y divide-border max-h-[400px] overflow-y-auto">
-        {filtered.length === 0 ? (
-          <div className="p-8 text-center text-muted-foreground text-sm">No notices found for this category.</div>
+      {/* Notices List */}
+      <div className="divide-y divide-border max-h-[440px] overflow-y-auto">
+        {loading ? (
+          <div className="p-12 text-center text-muted-foreground flex flex-col items-center justify-center gap-2">
+            <Loader2 className="w-6 h-6 animate-spin text-primary" />
+            <span className="text-xs">Loading public notices...</span>
+          </div>
+        ) : error ? (
+          <div className="p-8 text-center text-muted-foreground text-sm">
+            <p className="text-red-500 mb-1">{error}</p>
+            <button onClick={loadNotices} className="text-xs text-primary underline">Retry</button>
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="p-10 text-center text-muted-foreground text-sm">
+            <Bell className="w-8 h-8 text-muted-foreground/30 mx-auto mb-2" />
+            <p className="font-medium text-foreground">No active public notices in this category</p>
+            <p className="text-xs text-muted-foreground mt-1">Check back later for newly published notices from the District Police.</p>
+          </div>
         ) : (
           filtered.map((notice) => {
-            const Icon = notice.icon || getIcon(notice.type);
+            const Icon = getIcon(notice.type);
             const isOpen = expanded === notice.id;
             return (
               <motion.div
@@ -180,7 +226,7 @@ export default function NoticeBoard() {
                           initial={{ height: 0, opacity: 0 }}
                           animate={{ height: "auto", opacity: 1 }}
                           exit={{ height: 0, opacity: 0 }}
-                          className="text-xs text-muted-foreground mt-2 leading-relaxed overflow-hidden"
+                          className="text-xs text-muted-foreground mt-2 leading-relaxed overflow-hidden whitespace-pre-wrap"
                         >
                           {lang === "te" ? notice.descTe : notice.descEn}
                         </motion.p>
@@ -198,7 +244,6 @@ export default function NoticeBoard() {
           })
         )}
       </div>
-
     </div>
   );
 }

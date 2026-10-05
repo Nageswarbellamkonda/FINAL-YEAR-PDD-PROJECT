@@ -12,7 +12,9 @@ export default function QuickActionCard({ icon: Icon, title, description, to, co
   const handleClick = (e) => {
     e.preventDefault();
     if (isProtected && !isAuthenticated) {
-      sessionStorage.setItem('auth_return_to', to);
+      if (!to.includes('dashboard')) {
+        sessionStorage.setItem('auth_return_to', to);
+      }
       navigateToLogin();
     } else {
       navigate(to);

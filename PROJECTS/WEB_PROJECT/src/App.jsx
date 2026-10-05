@@ -5,7 +5,10 @@ import { BrowserRouter as Router, Route, Routes, Navigate } from 'react-router-d
 import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
-import { useState, useCallback } from 'react';
+import ErrorBoundary from '@/components/ErrorBoundary';
+import { normalizeRole } from '@/lib/rbac';
+import { roleMatchesAllowed, getDashboardPath } from '@/lib/authRouting';
+import { useState, useCallback, useEffect } from 'react';
 import Layout from './components/Layout';
 import Splash from './pages/Splash';
 import Home from './pages/Home';
@@ -14,6 +17,7 @@ import Register from './pages/Register';
 import AuthCallback from './pages/AuthCallback';
 import FileComplaint from './pages/FileComplaint';
 import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
 import TrackCase from './pages/TrackCase';
 // WomenSafety removed per requirements
 import Dashboard from './pages/Dashboard';
@@ -59,19 +63,44 @@ import CompleteProfile from './pages/CompleteProfile';
 
 
 const RequireRole = ({ children, allowedRoles }) => {
-  const { profile } = useAuth();
-  if (!profile) return null;
-  const userRole = profile.role || profile.user_type || 'citizen';
+  const { profile, user, isLoadingAuth } = useAuth();
+  if (isLoadingAuth) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="w-8 h-8 border-4 border-slate-200 border-t-slate-800 rounded-full animate-spin"></div>
+      </div>
+    );
+  }
+  if (!user && !profile) {
+    return <Navigate to="/login" replace />;
+  }
+  if (profile && profile.profile_completed === false) {
+    return <Navigate to="/complete-profile" replace />;
+  }
+  const userRole = (profile?.role || profile?.user_type || user?.user_metadata?.requested_role || user?.user_metadata?.role || 'citizen').toLowerCase();
   
-  if (allowedRoles && !allowedRoles.includes(userRole)) {
-    return <Navigate to="/dashboard" replace />;
+  if (allowedRoles && !roleMatchesAllowed(userRole, allowedRoles)) {
+    return <Navigate to={getDashboardPath(userRole)} replace />;
   }
   return children;
 };
 const AuthenticatedApp = () => {
-  const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
+  const { isLoadingAuth, isLoadingPublicSettings, authChecked, authError, navigateToLogin } = useAuth();
 
-  if (isLoadingPublicSettings || isLoadingAuth) {
+  // Root redirect safeguard when Supabase sends auth tokens to site_url root instead of /auth/callback
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const hasAuthHash = window.location.hash.includes('access_token=') || window.location.hash.includes('error=');
+      const hasAuthQuery = window.location.search.includes('code=') || window.location.search.includes('token_hash=');
+      if ((hasAuthHash || hasAuthQuery) && !window.location.pathname.includes('/auth/callback')) {
+        const target = `/auth/callback${window.location.search}${window.location.hash}`;
+        const base = (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
+        window.location.replace(`${base}${target.startsWith('/') ? target : `/${target}`}`);
+      }
+    }
+  }, []);
+
+  if (isLoadingPublicSettings || (!authChecked && isLoadingAuth)) {
     return (
       <div className="fixed inset-0 flex items-center justify-center">
         <div className="w-8 h-8 border-4 border-slate-200 border-t-slate-800 rounded-full animate-spin"></div>
@@ -83,8 +112,12 @@ const AuthenticatedApp = () => {
     if (authError.type === 'user_not_registered') {
       return <UserNotRegisteredError />;
     } else if (authError.type === 'auth_required') {
-      navigateToLogin();
-      return null;
+      const pathname = typeof window !== 'undefined' ? window.location.pathname : '';
+      const isPublicOrAuth = pathname.includes('/auth') || pathname.includes('/login') || pathname.includes('/register') || pathname === '/' || pathname.endsWith(import.meta.env.BASE_URL);
+      if (!isPublicOrAuth) {
+        navigateToLogin();
+        return null;
+      }
     }
   }
 
@@ -97,23 +130,24 @@ const AuthenticatedApp = () => {
         <Route path="/auth/callback" element={<AuthCallback />} />
         <Route path="/auth" element={<Navigate to="/login" replace />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/complete-profile" element={<CompleteProfile />} />
 
         <Route path="/file-complaint" element={<FileComplaint />} />
         <Route path="/track-case" element={<TrackCase />} />
-        {/* women-safety removed */}
+        {/* women-safety and live-tracking removed */}
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/departments" element={<Departments />} />
         <Route path="/contact" element={<Contact />} />
-        <Route path="/live-tracking" element={<LiveTracking />} />
+        <Route path="/live-tracking" element={<Navigate to="/unified-dashboard" replace />} />
         <Route path="/analytics" element={<Analytics />} />
         <Route path="/legal-documents" element={<LegalDocuments />} />
         <Route path="/police-stations" element={<PoliceStations />} />
         <Route path="/feedback" element={<Feedback />} />
-        <Route path="/officer-dashboard" element={<RequireRole allowedRoles={['police_officer', 'station_officer', 'dsp', 'sp', 'commissioner', 'dgp', 'administrator', 'system_admin']}><OfficerDashboard /></RequireRole>} />
-        <Route path="/station-dashboard" element={<RequireRole allowedRoles={['station_officer', 'dsp', 'sp', 'commissioner', 'dgp', 'administrator', 'system_admin']}><StationDashboard /></RequireRole>} />
-        <Route path="/dsp-dashboard" element={<RequireRole allowedRoles={['dsp', 'sp', 'commissioner', 'dgp', 'administrator', 'system_admin']}><DSPDashboard /></RequireRole>} />
-        <Route path="/attendance" element={<RequireRole allowedRoles={['station_officer', 'dsp', 'sp', 'commissioner', 'dgp', 'administrator', 'system_admin']}><AttendanceSystem /></RequireRole>} />
+        <Route path="/officer-dashboard" element={<RequireRole allowedRoles={['police_officer', 'station_officer', 'dsp', 'sp', 'commissioner', 'dgp', 'administrator', 'system_admin']}><ErrorBoundary><OfficerDashboard /></ErrorBoundary></RequireRole>} />
+        <Route path="/station-dashboard" element={<RequireRole allowedRoles={['police_officer', 'police', 'station_officer', 'dsp', 'sp', 'commissioner', 'dgp', 'administrator', 'system_admin']}><ErrorBoundary><StationDashboard /></ErrorBoundary></RequireRole>} />
+        <Route path="/dsp-dashboard" element={<RequireRole allowedRoles={['dsp', 'sp', 'commissioner', 'dgp', 'administrator', 'system_admin']}><ErrorBoundary><DSPDashboard /></ErrorBoundary></RequireRole>} />
+        <Route path="/attendance" element={<RequireRole allowedRoles={['police_officer', 'police', 'station_officer', 'si', 'ci', 'special', 'dsp', 'sp', 'commissioner', 'dgp', 'administrator', 'system_admin']}><AttendanceSystem /></RequireRole>} />
         <Route path="/crime-analysis" element={<RequireRole allowedRoles={['dsp', 'sp', 'commissioner', 'dgp', 'administrator', 'system_admin']}><CrimeAnalysis /></RequireRole>} />
         <Route path="/lawyer-dashboard" element={<RequireRole allowedRoles={['lawyer', 'system_admin']}><LawyerDashboard /></RequireRole>} />
         <Route path="/court-dashboard" element={<RequireRole allowedRoles={['court', 'court_officer', 'judge', 'system_admin']}><CourtDashboard /></RequireRole>} />
@@ -121,26 +155,26 @@ const AuthenticatedApp = () => {
         <Route path="/constitution-rights" element={<ConstitutionRights />} />
         <Route path="/citizen-chat" element={<CitizenChat />} />
         <Route path="/smart-alerts" element={<SmartAlerts />} />
-        <Route path="/unified-dashboard" element={<RequireRole allowedRoles={['dgp', 'administrator', 'system_admin']}><UnifiedDashboard /></RequireRole>} />
-        <Route path="/performance-dashboard" element={<RequireRole allowedRoles={['dgp', 'administrator', 'system_admin']}><PerformanceDashboard /></RequireRole>} />
+        <Route path="/unified-dashboard" element={<RequireRole allowedRoles={['police_officer', 'police', 'station_officer', 'si', 'ci', 'dsp', 'sp', 'commissioner', 'dgp', 'administrator', 'system_admin']}><UnifiedDashboard /></RequireRole>} />
+        <Route path="/performance-dashboard" element={<RequireRole allowedRoles={['police_officer', 'police', 'station_officer', 'si', 'ci', 'dsp', 'sp', 'commissioner', 'dgp', 'administrator', 'system_admin']}><PerformanceDashboard /></RequireRole>} />
         <Route path="/case-management" element={<RequireRole allowedRoles={['police_officer', 'station_officer', 'dsp', 'sp', 'commissioner', 'dgp', 'administrator', 'system_admin']}><CaseManagement /></RequireRole>} />
+        <Route path="/duty-management" element={<RequireRole allowedRoles={['police_officer', 'police', 'station_officer', 'si', 'ci', 'dsp', 'sp', 'commissioner', 'dgp', 'administrator', 'system_admin']}><DutyManagement /></RequireRole>} />
         <Route path="/safe-route" element={<SafeRoute />} />
         <Route path="/trusted-circle" element={<TrustedCircle />} />
         <Route path="/police-ai-advisor" element={<RequireRole allowedRoles={['dsp', 'sp', 'commissioner', 'dgp', 'administrator', 'system_admin']}><PoliceAIAdvisor /></RequireRole>} />
-        <Route path="/duty-management" element={<RequireRole allowedRoles={['station_officer', 'dsp', 'sp', 'commissioner', 'dgp', 'administrator', 'system_admin']}><DutyManagement /></RequireRole>} />
-        <Route path="/alerts-admin" element={<RequireRole allowedRoles={['dgp', 'administrator', 'system_admin']}><AlertsAdmin /></RequireRole>} />
+        <Route path="/alerts-admin" element={<RequireRole allowedRoles={['dsp', 'sp', 'commissioner', 'dgp', 'administrator', 'system_admin']}><Navigate to="/dsp-dashboard?tab=alerts" replace /></RequireRole>} />
         <Route path="/golden-hour-cyber" element={<GoldenHourCyber />} />
         <Route path="/officer-management" element={<RequireRole allowedRoles={['dgp', 'administrator', 'system_admin']}><OfficerManagement /></RequireRole>} />
-        <Route path="/activity-log" element={<RequireRole allowedRoles={['dgp', 'administrator', 'system_admin']}><ActivityLog /></RequireRole>} />
+        <Route path="/activity-log" element={<RequireRole allowedRoles={['police_officer', 'police', 'station_officer', 'si', 'ci', 'dsp', 'sp', 'commissioner', 'dgp', 'administrator', 'system_admin']}><ActivityLog /></RequireRole>} />
         <Route path="/dgp-dashboard" element={<RequireRole allowedRoles={['dgp', 'administrator', 'system_admin']}><DGPDashboard /></RequireRole>} />
         <Route path="/admin-panel" element={<RequireRole allowedRoles={['administrator', 'system_admin']}><AdminPanel /></RequireRole>} />
 
-        <Route path="/crime-heat-map" element={<RequireRole allowedRoles={['dsp', 'sp', 'commissioner', 'dgp', 'administrator', 'system_admin']}><CrimeHeatMap /></RequireRole>} />
-        <Route path="/nyaya-ai" element={<NyayaAIAssistant />} />
+        <Route path="/crime-heat-map" element={<RequireRole allowedRoles={['police_officer', 'police', 'station_officer', 'si', 'ci', 'dsp', 'sp', 'commissioner', 'dgp', 'administrator', 'system_admin']}><CrimeHeatMap /></RequireRole>} />
+        <Route path="/nyaya-ai" element={<ErrorBoundary><NyayaAIAssistant /></ErrorBoundary>} />
         <Route path="/workforce-monitor" element={<RequireRole allowedRoles={['dsp', 'sp', 'commissioner', 'dgp', 'administrator', 'system_admin']}><WorkforceMonitor /></RequireRole>} />
         <Route path="/system-admin" element={<RequireRole allowedRoles={['system_admin']}><SystemAdminBoard /></RequireRole>} />
         <Route path="/citizen-dashboard" element={<RequireRole allowedRoles={['citizen']}><CitizenDashboard /></RequireRole>} />
-        <Route path="/cyber-ops" element={<RequireRole allowedRoles={['cyber_officer', 'dsp', 'sp', 'commissioner', 'dgp', 'administrator', 'system_admin']}><CyberOpsCenter /></RequireRole>} />
+        <Route path="/cyber-ops" element={<RequireRole allowedRoles={['police_officer', 'police', 'station_officer', 'si', 'ci', 'cyber_ops', 'cyber_officer', 'dsp', 'sp', 'commissioner', 'dgp', 'administrator', 'system_admin']}><CyberOpsCenter /></RequireRole>} />
         <Route path="*" element={<PageNotFound />} />
       </Route>
     </Routes>
@@ -149,6 +183,14 @@ const AuthenticatedApp = () => {
 
 function App() {
   const [showSplash, setShowSplash] = useState(() => {
+    const isAuthRedirect = typeof window !== 'undefined' && (
+      window.location.pathname.includes('/auth/callback') ||
+      window.location.hash.includes('access_token') ||
+      window.location.search.includes('code=') ||
+      window.location.search.includes('token_hash=') ||
+      window.location.search.includes('error=')
+    );
+    if (isAuthRedirect) return false;
     return sessionStorage.getItem('nyayamitra_splash_shown') !== 'true';
   });
 

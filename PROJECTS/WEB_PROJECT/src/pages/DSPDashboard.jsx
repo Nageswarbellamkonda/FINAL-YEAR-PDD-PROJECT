@@ -12,14 +12,17 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Shield, FileText, Users, AlertTriangle, CheckCircle2, Clock, TrendingUp,
   LogOut, Eye, Trash2, Calendar, Bell, BarChart2, MapPin, Loader2, ArrowLeft,
-  UserX, UserCheck, Activity, Building2, Zap
+  UserX, UserCheck, Activity, Building2, Zap, Edit, Plus, Globe, Send, Save, CheckCircle, XCircle, RefreshCw
 } from "lucide-react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
+import { broadcastAlertChange, getAlertDestination, subscribeAlertsRealtime } from "@/lib/alertsSync";
+
 import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid
 } from "recharts";
@@ -47,6 +50,7 @@ const STATUS_COLORS = {
 
 export default function DSPDashboard() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [user, setUser] = useState(null);
   const [complaints, setComplaints] = useState([]);
   const [officers, setOfficers] = useState([]);
@@ -54,44 +58,172 @@ export default function DSPDashboard() {
   const [attendance, setAttendance] = useState([]);
   const [alerts, setAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState("overview");
+  
+  const VALID_TABS = ["overview", "cases", "officers", "duties", "attendance", "alerts"];
+  const currentTabParam = searchParams.get("tab");
+  const [activeTab, setActiveTab] = useState(
+    VALID_TABS.includes(currentTabParam) ? currentTabParam : "overview"
+  );
+
+  useEffect(() => {
+    const param = searchParams.get("tab");
+    if (param && VALID_TABS.includes(param) && param !== activeTab) {
+      setActiveTab(param);
+    }
+  }, [searchParams]);
+
+  const handleTabChange = (tab) => {
+    setActiveTab(tab);
+    setSearchParams({ tab });
+  };
   const [statusFilter, setStatusFilter] = useState("all");
   const [stationFilter, setStationFilter] = useState("all");
   const [updatingId, setUpdatingId] = useState(null);
   const [deletingOfficerId, setDeletingOfficerId] = useState(null);
 
+  const [alertForm, setAlertForm] = useState({
+    title: "",
+    message: "",
+    destination: "BOTH",
+    category: "crime_alert",
+    severity: "high",
+    district: "All AP",
+  });
+  const [editingAlertId, setEditingAlertId] = useState(null);
+  const [savingAlert, setSavingAlert] = useState(false);
+  const [deletingAlertId, setDeletingAlertId] = useState(null);
+  const [alertFilterStatus, setAlertFilterStatus] = useState("all");
+  const [alertDestinationFilter, setAlertDestinationFilter] = useState("all");
+
   const { user: authUser, profile, logout } = useAuth();
 
-  useEffect(() => { loadData(); }, [authUser, profile]);
+  const fetchAlerts = async () => {
+    try {
+      const { data, error } = await supabase
+        .from("station_alerts")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(100);
+      if (data && !error) {
+        setAlerts(data);
+      }
+    } catch (e) {
+      console.warn("[DSPDashboard] Error loading alerts:", e);
+    }
+  };
+
+  const parseDuty = (d) => {
+    let extra = {};
+    if (d.notes) {
+      try {
+        if (typeof d.notes === 'string' && d.notes.trim().startsWith('{')) {
+          extra = JSON.parse(d.notes);
+        } else if (typeof d.notes === 'object' && d.notes !== null) {
+          extra = d.notes;
+        }
+      } catch (e) {}
+    }
+    return {
+      ...d,
+      duty_type: d.duty_type || extra.duty_type || 'patrol',
+      shift: d.shift || extra.shift || 'morning',
+      duty_date: d.duty_date || extra.duty_date || (d.created_at ? d.created_at.slice(0, 10) : ''),
+      start_time: d.start_time || extra.start_time || '',
+      end_time: d.end_time || extra.end_time || '',
+      instructions: extra.text || extra.original_notes || (typeof d.notes === 'string' && !d.notes.trim().startsWith('{') ? d.notes : ''),
+    };
+  };
+
+  useEffect(() => {
+    loadData();
+
+    // Supabase Realtime for DSP duties, attendances & complaints
+    const dutyChannel = supabase
+      .channel(`dsp-sync-${Math.random().toString(36).slice(2, 8)}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'duty_assignments' },
+        () => {
+          loadData();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'attendances' },
+        () => {
+          loadData();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'complaints' },
+        () => {
+          loadData();
+        }
+      )
+      .subscribe((status, err) => {
+        if (err) console.warn("DSP realtime warning:", status, err);
+      });
+
+    return () => {
+      supabase.removeChannel(dutyChannel);
+    };
+  }, [authUser, profile]);
+
+  useEffect(() => {
+    fetchAlerts();
+    let unsubscribe = () => {};
+    try {
+      unsubscribe = subscribeAlertsRealtime(() => {
+        fetchAlerts();
+      });
+    } catch (err) {
+      console.warn("[DSPDashboard] Realtime subscription failed gracefully:", err);
+    }
+    return () => {
+      if (typeof unsubscribe === "function") {
+        try {
+          unsubscribe();
+        } catch (e) {
+          // ignore
+        }
+      }
+    };
+  }, []);
+
 
   const loadData = async () => {
+    fetchAlerts();
     const me = profile ?? authUser ?? null;
     setUser(me);
     if (!me) {
       setLoading(false);
       return;
     }
-    const district = me.district || "";
+    let district = me.district || "";
+    if (!district && me.md_district_id) {
+      try {
+        const { data: dRow } = await supabase.from("md_districts").select("name").eq("id", me.md_district_id).maybeSingle();
+        if (dRow?.name) district = dRow.name;
+      } catch (e) {
+        console.warn("Could not resolve district from master table:", e);
+      }
+    }
+
     try {
       // 1. Fetch complaints
       let comp = [];
+      let compQuery = supabase.from("complaints").select("*").order("created_at", { ascending: false });
       if (district) {
-        const { data: compData } = await supabase
-          .from("complaints")
-          .select("*")
-          .eq("district", district)
-          .order("created_at", { ascending: false })
-          .limit(200);
-        if (compData) comp = compData;
-      } else {
-        const { data: compData } = await supabase
-          .from("complaints")
-          .select("*")
-          .order("created_at", { ascending: false })
-          .limit(100);
-        if (compData) comp = compData;
+        compQuery = compQuery.or(`district.ilike.%${district}%,police_station.ilike.%${district}%`);
       }
-      // Fallback removed, relying completely on Supabase
+      const { data: compData } = await compQuery.limit(100);
+      if (compData && compData.length > 0) {
+        comp = compData;
+      } else {
+        const { data: allComp } = await supabase.from("complaints").select("*").order("created_at", { ascending: false }).limit(50);
+        comp = allComp || [];
+      }
 
       const mappedComplaints = comp.map(c => ({
         ...c,
@@ -114,54 +246,31 @@ export default function DSPDashboard() {
 
       // 3. Fetch duties
       let dut = [];
+      let dutQuery = supabase.from("duty_assignments").select("*").order("created_at", { ascending: false });
       if (district) {
-        const { data: dutData } = await supabase
-          .from("duty_assignments")
-          .select("*")
-          .eq("district", district)
-          .order("created_at", { ascending: false })
-          .limit(100);
-        if (dutData) dut = dutData;
-      } else {
-        const { data: dutData } = await supabase
-          .from("duty_assignments")
-          .select("*")
-          .order("created_at", { ascending: false })
-          .limit(50);
-        if (dutData) dut = dutData;
+        dutQuery = dutQuery.or(`district.ilike.%${district}%,police_station.ilike.%${district}%`);
       }
-      setDuties(dut);
+      const { data: dutData } = await dutQuery.limit(100);
+      if (dutData) dut = dutData;
+      setDuties(dut.map(parseDuty));
 
       // 4. Fetch attendance
       let att = [];
+      let attQuery = supabase.from("attendances").select("*").order("created_at", { ascending: false });
       if (district) {
-        const { data: attData } = await supabase
-          .from("attendances")
-          .select("*")
-          .eq("district", district)
-          .order("created_at", { ascending: false })
-          .limit(50);
-        if (attData) att = attData;
+        attQuery = attQuery.or(`district.ilike.%${district}%,police_station.ilike.%${district}%`);
+      }
+      const { data: attData } = await attQuery.limit(50);
+      if (attData && attData.length > 0) {
+        att = attData;
       } else {
-        const { data: attData } = await supabase
-          .from("attendances")
-          .select("*")
-          .order("created_at", { ascending: false })
-          .limit(30);
-        if (attData) att = attData;
+        const { data: allAtt } = await supabase.from("attendances").select("*").order("created_at", { ascending: false }).limit(30);
+        att = allAtt || [];
       }
       setAttendance(att);
 
-      // 5. Fetch alerts
-      let ale = [];
-      const { data: aleData } = await supabase
-        .from("station_alerts")
-        .select("*")
-        .eq("is_active", true)
-        .order("created_at", { ascending: false })
-        .limit(20);
-      if (aleData) ale = aleData;
-      setAlerts(ale);
+      // 5. Fetch alerts (all alerts including drafts for DSP management)
+      await fetchAlerts();
     } catch (err) {
       console.error("Error loading data in DSPDashboard:", err);
     } finally {
@@ -219,30 +328,162 @@ export default function DSPDashboard() {
     }
   };
 
-  const publishAlert = async (title, message, severity) => {
+  const handleSaveAlert = async (isPublish = true) => {
+    if (!alertForm.title.trim() || !alertForm.message.trim()) {
+      toast.error("Alert Title and Message are required");
+      return;
+    }
+    setSavingAlert(true);
     try {
-      const { error } = await supabase
-        .from("station_alerts")
-        .insert({
-          title,
-          message,
-          alert_type: "advisory",
-          severity,
-          scope: "district",
-          district: user?.district || "",
-          published_by: user?.email || "",
-          publisher_role: "dsp",
-          publisher_name: user?.full_name || "",
-          is_active: true
-        });
-      if (error) throw error;
-      toast.success("District alert published");
-      loadData();
+      const districtVal = alertForm.district || user?.district || "All AP";
+      const scopeVal = districtVal === "All AP" ? "all" : "district";
+      const isNotice = alertForm.destination === "PUBLIC_NOTICE" || alertForm.destination === "BOTH";
+      const isTicker = alertForm.destination === "SMART_CRIME_ALERT" || alertForm.destination === "BOTH";
+
+      const targetAudience = {
+        destination: alertForm.destination,
+        show_in_notice_board: isNotice,
+        show_in_ticker: isTicker,
+        status: isPublish ? "published" : "draft",
+        notice_type: alertForm.category,
+        severity: alertForm.severity,
+        district: districtVal,
+        published_by: user?.email || "dsp@nyayamitra.in",
+        publisher_name: user?.full_name || "DSP Officer",
+        publisher_role: "dsp",
+        updated_at: new Date().toISOString()
+      };
+
+      const payload = {
+        title: alertForm.title.trim(),
+        message: alertForm.message.trim(),
+        alert_type: alertForm.category,
+        severity: alertForm.severity,
+        scope: scopeVal,
+        district: districtVal,
+        station: "All Stations",
+        published_by: user?.email || "dsp@nyayamitra.in",
+        publisher_role: "dsp",
+        publisher_name: user?.full_name || "DSP Officer",
+        is_active: isPublish,
+        target_audience: targetAudience
+      };
+
+      let savedRecord = null;
+      if (editingAlertId) {
+        const { data, error } = await supabase
+          .from("station_alerts")
+          .update(payload)
+          .eq("id", editingAlertId)
+          .select();
+        if (error) throw error;
+        savedRecord = data?.[0] || { id: editingAlertId, ...payload };
+        toast.success(isPublish ? "Alert updated and published live" : "Draft updated successfully");
+      } else {
+        const { data, error } = await supabase
+          .from("station_alerts")
+          .insert([payload])
+          .select();
+        if (error) throw error;
+        savedRecord = data?.[0] || payload;
+        toast.success(isPublish ? "Alert published to live public board" : "Alert saved as draft");
+      }
+
+      await broadcastAlertChange(editingAlertId ? "UPDATE" : "INSERT", savedRecord);
+
+      setEditingAlertId(null);
+      setAlertForm({
+        title: "",
+        message: "",
+        destination: "BOTH",
+        category: "crime_alert",
+        severity: "high",
+        district: user?.district || "All AP",
+      });
+
+      await fetchAlerts();
     } catch (err) {
-      console.error("Error publishing alert:", err);
-      toast.error("Failed to publish alert");
+      console.error("Error saving alert:", err);
+      toast.error(`Failed to save alert: ${err.message || 'Database error'}`);
+    } finally {
+      setSavingAlert(false);
     }
   };
+
+  const startEditAlert = (alert) => {
+    setEditingAlertId(alert.id);
+    setAlertForm({
+      title: alert.title || "",
+      message: alert.message || "",
+      destination: alert.target_audience?.destination || getAlertDestination(alert),
+      category: alert.target_audience?.notice_type || alert.alert_type || "crime_alert",
+      severity: alert.severity || "high",
+      district: alert.district || user?.district || "All AP",
+    });
+
+    const formEl = document.getElementById("dsp-alert-form");
+    if (formEl) formEl.scrollIntoView({ behavior: "smooth" });
+  };
+
+  const cancelEditAlert = () => {
+    setEditingAlertId(null);
+    setAlertForm({
+      title: "",
+      message: "",
+      destination: "BOTH",
+      category: "crime_alert",
+      severity: "high",
+      district: user?.district || "All AP",
+    });
+  };
+
+  const handleToggleAlert = async (alert) => {
+    try {
+      const nextActive = !alert.is_active;
+      const updatedAudience = {
+        ...(alert.target_audience || {}),
+        status: nextActive ? "published" : "inactive",
+        updated_at: new Date().toISOString()
+      };
+      const { data, error } = await supabase
+        .from("station_alerts")
+        .update({
+          is_active: nextActive,
+          target_audience: updatedAudience
+        })
+        .eq("id", alert.id)
+        .select();
+      if (error) throw error;
+
+      const updatedRecord = data?.[0] || { ...alert, is_active: nextActive, target_audience: updatedAudience };
+      await broadcastAlertChange("TOGGLE", updatedRecord);
+      toast.success(nextActive ? "Alert published live" : "Alert unpublished / deactivated");
+      await fetchAlerts();
+    } catch (err) {
+      console.error("Error toggling alert:", err);
+      toast.error("Failed to update alert status");
+    }
+  };
+
+  const handleDeleteAlert = async (id, title) => {
+    if (!confirm(`Are you sure you want to delete this alert: "${title}"?`)) return;
+    setDeletingAlertId(id);
+    try {
+      const { error } = await supabase.from("station_alerts").delete().eq("id", id);
+      if (error) throw error;
+
+      await broadcastAlertChange("DELETE", { id });
+      toast.success("Alert deleted from database");
+      if (editingAlertId === id) cancelEditAlert();
+      await fetchAlerts();
+    } catch (err) {
+      console.error("Error deleting alert:", err);
+      toast.error("Failed to delete alert");
+    } finally {
+      setDeletingAlertId(null);
+    }
+  };
+
 
   const filtered = complaints.filter(c => {
     if (statusFilter !== "all" && c.status !== statusFilter) return false;
@@ -269,11 +510,12 @@ export default function DSPDashboard() {
   ).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([name, value]) => ({ name: name.replace("_", " "), value }));
 
   const stations = [...new Set(complaints.map(c => c.police_station).filter(Boolean))];
-  const todayPresent = attendance.filter(a => moment(a.marked_at).isSame(moment(), "day")).length;
+  const todayPresent = attendance.filter(a => (a.status === 'present' || a.status === 'late') && moment(a.date || a.created_at).isSame(moment(), "day")).length;
 
   if (loading) return <div className="flex items-center justify-center min-h-[60vh]"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
 
-  const tabs = ["overview", "cases", "officers", "duties", "alerts"];
+  const currentDistrict = user?.district || 'Vijayawada';
+  const tabs = ["overview", "cases", "officers", "duties", "attendance", "alerts"];
 
   return (
     <div className="max-w-7xl mx-auto py-6 px-4">
@@ -286,17 +528,26 @@ export default function DSPDashboard() {
         <div>
           <div className="flex items-center gap-2 mb-1">
             <Badge className="bg-violet-600 text-white text-xs">LEVEL 2 — DISTRICT DSP</Badge>
-            <Badge variant="outline" className="text-xs">{DISTRICT_DISPLAY[user?.district] || user?.district}</Badge>
+            <Badge variant="outline" className="text-xs">{DISTRICT_DISPLAY[currentDistrict] || currentDistrict}</Badge>
           </div>
           <h1 className="font-heading font-bold text-2xl flex items-center gap-2">
             <Shield className="w-6 h-6 text-violet-600" />
             DSP Dashboard — {user?.full_name || "DSP"}
           </h1>
           <p className="text-muted-foreground text-sm">
-            Deputy Superintendent of Police • {DISTRICT_DISPLAY[user?.district] || user?.district} • Andhra Pradesh Pilot
+            Deputy Superintendent of Police • {DISTRICT_DISPLAY[currentDistrict] || currentDistrict} • Andhra Pradesh Pilot
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
+          <Button asChild variant="outline" size="sm" className="border-cyan-300 text-cyan-800 hover:bg-cyan-50">
+            <Link to="/attendance"><Calendar className="w-4 h-4 mr-1 text-cyan-600" /> Attendance</Link>
+          </Button>
+          <Button asChild variant="outline" size="sm" className="border-emerald-300 text-emerald-800 hover:bg-emerald-50">
+            <Link to="/duty-management"><Clock className="w-4 h-4 mr-1 text-emerald-600" /> Duty Mgmt</Link>
+          </Button>
+          <Button asChild variant="outline" size="sm" className="border-indigo-300 text-indigo-800 hover:bg-indigo-50">
+            <Link to="/nyaya-ai"><Shield className="w-4 h-4 mr-1 text-indigo-600" /> Nyaya AI</Link>
+          </Button>
           <Button asChild variant="outline" size="sm">
             <Link to="/workforce-monitor"><Users className="w-4 h-4 mr-1" /> Workforce</Link>
           </Button>
@@ -315,7 +566,7 @@ export default function DSPDashboard() {
       {/* Tabs */}
       <div className="flex gap-1 mb-6 bg-muted p-1 rounded-xl w-fit flex-wrap">
         {tabs.map(tab => (
-          <button key={tab} onClick={() => setActiveTab(tab)}
+          <button key={tab} onClick={() => handleTabChange(tab)}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition capitalize ${activeTab === tab ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}>
             {tab}
           </button>
@@ -529,19 +780,24 @@ export default function DSPDashboard() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="space-y-2">
-                {duties.slice(0, 20).map(d => (
-                  <div key={d.id} className="flex items-center justify-between border rounded-lg p-3 text-sm">
-                    <div>
-                      <p className="font-medium">{d.officer_name}</p>
-                      <p className="text-xs text-muted-foreground">{d.duty_type?.replace("_"," ")} • {d.location} • {d.shift} shift • {moment(d.duty_date).format("DD MMM")}</p>
+                {duties.length === 0 ? (
+                  <p className="text-center py-6 text-sm text-muted-foreground">No duty assignments recorded in this district</p>
+                ) : (
+                  duties.slice(0, 20).map(d => (
+                    <div key={d.id} className="flex items-center justify-between border rounded-lg p-3 text-sm">
+                      <div>
+                        <p className="font-medium">{d.officer_name || d.officer_email}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {d.duty_type?.replace(/_/g," ")} • {d.police_station || d.location || "District Beat"} • {d.shift} shift • {d.duty_date || moment(d.created_at).format("DD MMM YYYY")}
+                        </p>
+                        {d.instructions && <p className="text-xs text-slate-500 mt-0.5 italic">{d.instructions}</p>}
+                      </div>
+                      <Badge className={`text-xs ${d.status === "active" ? "bg-green-600" : d.status === "completed" ? "bg-gray-500" : "bg-yellow-500"} text-white`}>
+                        {d.status?.toUpperCase()}
+                      </Badge>
                     </div>
-                    <Badge className={`text-xs ${d.status === "active" ? "bg-green-500" : d.status === "completed" ? "bg-gray-500" : "bg-yellow-500"} text-white`}>
-                      {d.status?.toUpperCase()}
-                    </Badge>
-                  </div>
-                ))}
-              </div>
+                  ))
+                )}
             </CardContent>
           </Card>
           <Button asChild>
@@ -550,49 +806,469 @@ export default function DSPDashboard() {
         </div>
       )}
 
-      {activeTab === "alerts" && (
+      {activeTab === "attendance" && (
         <div className="space-y-4">
           <Card>
-            <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
-                <Bell className="w-4 h-4 text-primary" /> District Alerts
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                <p className="text-sm font-semibold text-yellow-800 mb-3">Publish New District Alert</p>
-                <div className="grid sm:grid-cols-2 gap-3">
-                  <Input placeholder="Alert Title" id="alert-title" className="h-9 text-sm" />
-                  <Select defaultValue="high">
-                    <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="low">Low</SelectItem>
-                      <SelectItem value="medium">Medium</SelectItem>
-                      <SelectItem value="high">High</SelectItem>
-                      <SelectItem value="critical">Critical</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <Input placeholder="Alert message..." className="mt-2 h-9 text-sm" id="alert-msg" />
-                <Button className="mt-2 w-full" size="sm"
-                  onClick={() => {
-                    const title = document.getElementById("alert-title")?.value;
-                    const msg = document.getElementById("alert-msg")?.value;
-                    if (title && msg) publishAlert(title, msg, "high");
-                  }}>
-                  Publish District Alert
+            <CardHeader className="flex flex-row items-center justify-between pb-3">
+              <div>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Calendar className="w-4 h-4 text-cyan-600" />
+                  District Officer Attendance ({attendance.length})
+                </CardTitle>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Live geo-verified attendance monitoring for {DISTRICT_DISPLAY[currentDistrict] || currentDistrict}
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Button asChild size="sm" variant="outline" className="text-xs">
+                  <Link to="/attendance">Mark Attendance System →</Link>
+                </Button>
+                <Button asChild size="sm" variant="outline" className="text-xs">
+                  <Link to="/workforce-monitor">Workforce Monitor →</Link>
                 </Button>
               </div>
-              {alerts.filter(a => a.district === user?.district).map(a => (
-                <div key={a.id} className="border rounded-lg p-3">
-                  <p className="font-semibold text-sm">{a.title}</p>
-                  <p className="text-xs text-muted-foreground mt-1">{a.message}</p>
-                  <div className="flex gap-2 mt-2">
-                    <Badge variant="outline" className="text-xs">{a.severity}</Badge>
-                    <Badge variant="outline" className="text-xs">{moment(a.created_date).fromNow()}</Badge>
+            </CardHeader>
+            <CardContent>
+              {/* Summary Stats */}
+              <div className="grid grid-cols-3 gap-3 mb-4">
+                {[
+                  { label: "Present Today", count: attendance.filter(a => a.status === "present" && moment(a.date || a.created_at).isSame(moment(), "day")).length, color: "text-green-700 bg-green-50" },
+                  { label: "Late Today", count: attendance.filter(a => a.status === "late" && moment(a.date || a.created_at).isSame(moment(), "day")).length, color: "text-yellow-700 bg-yellow-50" },
+                  { label: "Total Logged", count: attendance.length, color: "text-blue-700 bg-blue-50" },
+                ].map((s, i) => (
+                  <Card key={i} className={`${s.color} border-0`}>
+                    <CardContent className="p-3 text-center">
+                      <p className="font-bold text-2xl">{s.count}</p>
+                      <p className="text-xs font-medium">{s.label}</p>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+
+              {attendance.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground text-sm">
+                  <Calendar className="w-8 h-8 mx-auto mb-2 opacity-30 text-cyan-600" />
+                  <p className="font-medium text-foreground">No attendance records found for this district</p>
+                  <p className="text-xs text-muted-foreground mt-1">Officers marking attendance in stations will appear here in real-time.</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {attendance.slice(0, 30).map(a => (
+                    <div key={a.id} className="flex items-center justify-between border rounded-lg p-3 text-sm hover:bg-muted/40 transition">
+                      <div>
+                        <p className="font-medium">{a.officer_name || a.officer_email}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {a.police_station || a.district || "Station Beat"} • {moment(a.date || a.created_at).format("ddd, DD MMM YYYY • hh:mm A")}
+                          {a.verified && <span className="ml-1.5 text-green-600 font-medium">✓ Geo-verified</span>}
+                        </p>
+                      </div>
+                      <Badge className={
+                        a.status === "present" ? "bg-green-100 text-green-700 border-green-300" :
+                        a.status === "late" ? "bg-yellow-100 text-yellow-700 border-yellow-300" :
+                        "bg-red-100 text-red-700 border-red-300"
+                      } variant="outline">
+                        {a.status?.toUpperCase()}
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {activeTab === "alerts" && (
+        <div className="space-y-6">
+          {/* Card: Authoritative Form */}
+          <Card id="dsp-alert-form" className="border-2 border-primary/20 shadow-sm">
+            <CardHeader className="bg-primary/5 pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base font-bold flex items-center gap-2">
+                  <Bell className="w-5 h-5 text-primary" />
+                  {editingAlertId ? "Edit Alert / Public Notice" : "Create & Publish Alert / Public Notice"}
+                </CardTitle>
+                {editingAlertId && (
+                  <Badge variant="outline" className="text-xs bg-amber-50 text-amber-800 border-amber-300">
+                    Editing Mode
+                  </Badge>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Single control point for public alerts. Published items reflect immediately on the Home Public Notice Board and Home Header Alerts in real-time.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-4 pt-4">
+              <div className="space-y-3">
+                {/* Title */}
+                <div>
+                  <label className="text-xs font-semibold text-foreground mb-1 block">
+                    Alert / Notice Title *
+                  </label>
+                  <Input
+                    placeholder="e.g. Cyber Fraud Alert: Do Not Share OTP | Missing Person Notice"
+                    value={alertForm.title}
+                    onChange={(e) => setAlertForm({ ...alertForm, title: e.target.value })}
+                    className="h-9 text-sm"
+                  />
+                </div>
+
+                {/* Message */}
+                <div>
+                  <label className="text-xs font-semibold text-foreground mb-1 block">
+                    Alert Description / Message *
+                  </label>
+                  <Textarea
+                    placeholder="Enter the full description, warning, advisory, or instructions for the public..."
+                    value={alertForm.message}
+                    onChange={(e) => setAlertForm({ ...alertForm, message: e.target.value })}
+                    className="min-h-[80px] text-sm resize-y"
+                  />
+                </div>
+
+                {/* Selectors Grid: Destination, Category, Severity, District */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
+                  {/* Public Destination */}
+                  <div>
+                    <label className="text-xs font-semibold text-foreground mb-1 block">
+                      Public Destination *
+                    </label>
+                    <Select
+                      value={alertForm.destination}
+                      onValueChange={(val) => setAlertForm({ ...alertForm, destination: val })}
+                    >
+                      <SelectTrigger className="h-9 text-sm">
+                        <SelectValue placeholder="Select Destination" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="BOTH">Both (Notice Board & Header Alerts)</SelectItem>
+                        <SelectItem value="PUBLIC_NOTICE">Home Public Notice Board Only</SelectItem>
+                        <SelectItem value="SMART_CRIME_ALERT">Home Header / Smart Crime Alerts Only</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Category / Type */}
+                  <div>
+                    <label className="text-xs font-semibold text-foreground mb-1 block">
+                      Category / Type
+                    </label>
+                    <Select
+                      value={alertForm.category}
+                      onValueChange={(val) => setAlertForm({ ...alertForm, category: val })}
+                    >
+                      <SelectTrigger className="h-9 text-sm">
+                        <SelectValue placeholder="Select Type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="crime_alert">Crime Alert</SelectItem>
+                        <SelectItem value="advisory">Public Advisory</SelectItem>
+                        <SelectItem value="missing">Missing Person</SelectItem>
+                        <SelectItem value="reward">Reward Announced</SelectItem>
+                        <SelectItem value="emergency">Emergency Alert</SelectItem>
+                        <SelectItem value="cyber_crime">Cyber Crime</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Severity */}
+                  <div>
+                    <label className="text-xs font-semibold text-foreground mb-1 block">
+                      Severity / Priority
+                    </label>
+                    <Select
+                      value={alertForm.severity}
+                      onValueChange={(val) => setAlertForm({ ...alertForm, severity: val })}
+                    >
+                      <SelectTrigger className="h-9 text-sm">
+                        <SelectValue placeholder="Select Severity" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="low">Low (General)</SelectItem>
+                        <SelectItem value="medium">Medium (Advisory)</SelectItem>
+                        <SelectItem value="high">High (Alert)</SelectItem>
+                        <SelectItem value="critical">Critical (Emergency)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* District */}
+                  <div>
+                    <label className="text-xs font-semibold text-foreground mb-1 block">
+                      District Jurisdiction
+                    </label>
+                    <Select
+                      value={alertForm.district}
+                      onValueChange={(val) => setAlertForm({ ...alertForm, district: val })}
+                    >
+                      <SelectTrigger className="h-9 text-sm">
+                        <SelectValue placeholder="Select District" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="All AP">All AP (Statewide)</SelectItem>
+                        {PILOT_DISTRICTS.map((d) => (
+                          <SelectItem key={d} value={d}>{d}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
-              ))}
+
+                {/* Form Buttons */}
+                <div className="flex flex-wrap items-center gap-2 pt-2">
+                  <Button
+                    size="sm"
+                    className="bg-primary hover:bg-primary/90 text-white gap-1.5"
+                    disabled={savingAlert}
+                    onClick={() => handleSaveAlert(true)}
+                  >
+                    {savingAlert ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                    {editingAlertId ? "Update & Publish Live" : "Publish to Live Public Board"}
+                  </Button>
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5"
+                    disabled={savingAlert}
+                    onClick={() => handleSaveAlert(false)}
+                  >
+                    <Save className="w-4 h-4" />
+                    {editingAlertId ? "Save Changes as Draft" : "Save as Draft (Unpublished)"}
+                  </Button>
+
+                  {editingAlertId && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={cancelEditAlert}
+                      disabled={savingAlert}
+                    >
+                      Cancel Edit
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* List of Managed Alerts */}
+          <Card>
+            <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3">
+              <div>
+                <CardTitle className="text-base font-bold flex items-center gap-2">
+                  <Shield className="w-4 h-4 text-primary" />
+                  Managed District Alerts & Notices ({alerts.length})
+                </CardTitle>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Real-time database records in <code className="bg-muted px-1 py-0.5 rounded text-[11px]">public.station_alerts</code>
+                </p>
+              </div>
+
+              {/* Filter controls */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <Select
+                  value={alertFilterStatus}
+                  onValueChange={setAlertFilterStatus}
+                >
+                  <SelectTrigger className="h-8 text-xs w-[130px]">
+                    <SelectValue placeholder="Filter status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Records</SelectItem>
+                    <SelectItem value="published">Published Only</SelectItem>
+                    <SelectItem value="draft">Drafts Only</SelectItem>
+                  </SelectContent>
+                </Select>
+
+                <Select
+                  value={alertDestinationFilter}
+                  onValueChange={setAlertDestinationFilter}
+                >
+                  <SelectTrigger className="h-8 text-xs w-[150px]">
+                    <SelectValue placeholder="Destination" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Destinations</SelectItem>
+                    <SelectItem value="BOTH">Both Destinations</SelectItem>
+                    <SelectItem value="PUBLIC_NOTICE">Notice Board Only</SelectItem>
+                    <SelectItem value="SMART_CRIME_ALERT">Header Alerts Only</SelectItem>
+                  </SelectContent>
+                </Select>
+
+                <Button variant="outline" size="sm" onClick={loadData} title="Refresh alerts from database">
+                  <RefreshCw className="w-3.5 h-3.5" />
+                </Button>
+              </div>
+            </CardHeader>
+
+            <CardContent>
+              {(() => {
+                const safeAlerts = Array.isArray(alerts) ? alerts : [];
+                const displayedAlerts = safeAlerts.filter((a) => {
+                  if (!a || typeof a !== "object") return false;
+                  let aud = a.target_audience;
+                  if (typeof aud === "string") {
+                    try { aud = JSON.parse(aud); } catch { aud = {}; }
+                  }
+                  if (alertFilterStatus === "published" && !a.is_active) return false;
+                  if (alertFilterStatus === "draft" && a.is_active) return false;
+                  if (alertDestinationFilter !== "all") {
+                    const dest = aud?.destination || getAlertDestination(a);
+                    if (dest !== alertDestinationFilter && dest !== "BOTH") return false;
+                  }
+                  return true;
+                });
+
+                if (displayedAlerts.length === 0) {
+                  return (
+                    <div className="p-8 text-center text-muted-foreground text-sm border border-dashed rounded-lg">
+                      <Bell className="w-8 h-8 text-muted-foreground/30 mx-auto mb-2" />
+                      <p className="font-semibold text-foreground">No alerts match the selected filter</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Use the form above to publish a new alert or change your filters.
+                      </p>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="space-y-3">
+                    {displayedAlerts.map((a) => {
+                      if (!a) return null;
+                      let aud = a.target_audience;
+                      if (typeof aud === "string") {
+                        try { aud = JSON.parse(aud); } catch { aud = {}; }
+                      }
+                      const dest = aud?.destination || getAlertDestination(a);
+                      const isPub = a.is_active !== false && aud?.status !== "draft";
+
+                      const sev = String(a.severity || "medium").toLowerCase();
+                      const sevColor =
+                        sev === "critical"
+                          ? "bg-red-100 text-red-700 border-red-200"
+                          : sev === "high"
+                          ? "bg-orange-100 text-orange-700 border-orange-200"
+                          : sev === "medium"
+                          ? "bg-yellow-100 text-yellow-700 border-yellow-200"
+                          : "bg-green-100 text-green-700 border-green-200";
+
+                      const destLabel =
+                        dest === "BOTH"
+                          ? "Notice Board & Header"
+                          : dest === "PUBLIC_NOTICE"
+                          ? "Notice Board Only"
+                          : "Header Alerts Only";
+
+                      const categoryLabel = String(aud?.notice_type || a.alert_type || "advisory").replace("_", " ");
+
+                      return (
+                        <div
+                          key={a.id}
+                          className={`border rounded-xl p-4 transition-all hover:shadow-sm ${
+                            isPub ? "bg-card" : "bg-muted/30 border-dashed"
+                          }`}
+                        >
+                          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap mb-1.5">
+                                {/* Status Badge */}
+                                <Badge
+                                  className={`text-[10px] font-bold ${
+                                    isPub
+                                      ? "bg-emerald-600 text-white"
+                                      : "bg-amber-500 text-white"
+                                  }`}
+                                >
+                                  {isPub ? "● PUBLISHED (LIVE)" : "○ DRAFT / INACTIVE"}
+                                </Badge>
+
+                                {/* Destination Badge */}
+                                <Badge variant="outline" className="text-[10px] bg-sky-50 text-sky-700 border-sky-200">
+                                  {destLabel}
+                                </Badge>
+
+                                {/* Severity Badge */}
+                                <Badge variant="outline" className={`text-[10px] font-semibold ${sevColor}`}>
+                                  {(a.severity || "medium").toUpperCase()}
+                                </Badge>
+
+                                {/* Category */}
+                                <Badge variant="secondary" className="text-[10px]">
+                                  {categoryLabel}
+                                </Badge>
+
+                                {/* District */}
+                                <span className="flex items-center gap-1 text-[11px] text-muted-foreground ml-auto">
+                                  <MapPin className="w-3 h-3" />
+                                  {a.district || "All AP"}
+                                </span>
+                              </div>
+
+                              <h4 className="font-bold text-sm text-foreground">{a.title}</h4>
+                              <p className="text-xs text-muted-foreground mt-1 whitespace-pre-wrap leading-relaxed">
+                                {a.message}
+                              </p>
+
+                              <div className="flex items-center gap-3 mt-2.5 text-[11px] text-muted-foreground/80 flex-wrap">
+                                <span>Published by: <strong>{a.publisher_name || a.published_by || "DSP Officer"}</strong></span>
+                                <span>•</span>
+                                <span>{moment(a.created_at).format("DD MMM YYYY, hh:mm A")}</span>
+                                <span>({moment(a.created_at).fromNow()})</span>
+                              </div>
+                            </div>
+
+                            {/* Action Buttons */}
+                            <div className="flex sm:flex-col items-center gap-1.5 shrink-0 self-end sm:self-start">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-8 text-xs gap-1"
+                                onClick={() => startEditAlert(a)}
+                                title="Edit Alert"
+                              >
+                                <Edit className="w-3.5 h-3.5" />
+                                Edit
+                              </Button>
+
+                              <Button
+                                size="sm"
+                                variant={isPub ? "secondary" : "default"}
+                                className={`h-8 text-xs gap-1 ${
+                                  isPub
+                                    ? "text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200"
+                                    : "bg-emerald-600 hover:bg-emerald-700 text-white"
+                                }`}
+                                onClick={() => handleToggleAlert(a)}
+                                title={isPub ? "Unpublish from public views" : "Publish to live public views"}
+                              >
+                                {isPub ? <XCircle className="w-3.5 h-3.5" /> : <CheckCircle className="w-3.5 h-3.5" />}
+                                {isPub ? "Unpublish" : "Publish"}
+                              </Button>
+
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-8 text-xs text-red-600 hover:text-red-700 hover:bg-red-50 gap-1"
+                                onClick={() => handleDeleteAlert(a.id, a.title)}
+                                disabled={deletingAlertId === a.id}
+                                title="Delete from Database"
+                              >
+                                {deletingAlertId === a.id ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                )}
+                                Delete
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
             </CardContent>
           </Card>
         </div>

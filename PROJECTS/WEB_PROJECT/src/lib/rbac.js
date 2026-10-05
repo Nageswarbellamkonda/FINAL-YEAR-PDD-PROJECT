@@ -15,6 +15,8 @@ export const ROLES = {
   CONSTABLE:  "police",
   SHE_TEAMS:  "she_teams",
   SPECIAL:    "special",
+  CYBER_OPS:  "cyber_ops",
+  CYBER_OFFICER: "cyber_officer",
   LAWYER:     "lawyer",
   COURT:      "court",
   CITIZEN:    "citizen",
@@ -33,6 +35,8 @@ export const ROLE_LABELS = {
   police:    "Constable",
   she_teams: "SHE Teams Officer",
   special:   "Special Officer",
+  cyber_ops: "Cyber Officer",
+  cyber_officer: "Cyber Officer",
   lawyer:    "Lawyer",
   court:     "Court Official",
   citizen:   "Citizen",
@@ -50,6 +54,8 @@ export const ROLE_RANK = {
   dsp:       65,
   ci:        50,
   si:        40,
+  cyber_ops: 50,
+  cyber_officer: 50,
   she_teams: 35,
   special:   35,
   police:    30,
@@ -70,8 +76,8 @@ export const PERMISSIONS = {
   TRANSFER_CASE:            ["admin", "dgp", "adg", "ig", "dig", "sp", "dsp", "ci"],
   DELETE_CASE:              ["admin", "dgp"],
   ESCALATE_CASE:            ["admin", "dgp", "adg", "ig", "dig", "sp", "dsp", "ci", "si"],
-  PUBLISH_DISTRICT_ALERT:   ["admin", "dgp", "adg", "ig", "dig", "sp", "dsp"],
-  PUBLISH_STATION_ALERT:    ["admin", "dgp", "adg", "ig", "dig", "sp", "dsp", "ci", "si"],
+  PUBLISH_DISTRICT_ALERT:   ["admin", "dgp", "adg", "ig", "dig", "sp", "dsp", "cyber_officer"],
+  PUBLISH_STATION_ALERT:    ["admin", "dgp", "adg", "ig", "dig", "sp", "dsp", "ci", "si", "police", "cyber_officer"],
   ASSIGN_DUTY:              ["admin", "dgp", "adg", "ig", "dig", "sp", "dsp", "ci", "si"],
   VIEW_DUTIES:              ["admin", "dgp", "adg", "ig", "dig", "sp", "dsp", "ci", "si", "police", "she_teams", "special"],
   VIEW_ALL_ATTENDANCE:      ["admin", "dgp", "adg", "ig", "dig", "sp", "dsp"],
@@ -85,15 +91,25 @@ export const PERMISSIONS = {
   CASE_MANAGEMENT:          ["admin", "dgp", "adg", "ig", "dig", "sp", "dsp", "ci", "si"],
 };
 
+export function normalizeRole(role) {
+  const r = (role || '').toLowerCase();
+  if (r === 'administrator' || r === 'system_admin') return 'admin';
+  if (r === 'police_officer') return 'police';
+  if (r === 'station_officer') return 'si';
+  if (r === 'cyber_ops' || r === 'cyber_officer') return 'cyber_officer';
+  return r;
+}
+
 export function hasPermission(userRole, permission) {
   const allowed = PERMISSIONS[permission] || [];
-  return allowed.includes(userRole?.toLowerCase());
+  const normalized = normalizeRole(userRole);
+  return allowed.includes(normalized) || allowed.includes(userRole?.toLowerCase());
 }
 
 export function getJurisdiction(userRole) {
-  const r = userRole?.toLowerCase();
+  const r = normalizeRole(userRole);
   if (["admin", "dgp", "adg", "ig", "dig"].includes(r)) return "all";
-  if (["sp", "dsp"].includes(r)) return "district";
+  if (["sp", "dsp", "cyber_officer"].includes(r)) return "district";
   if (["ci"].includes(r)) return "circle";
   return "station";
 }
@@ -120,12 +136,13 @@ export function getDashboardRoute(userRole) {
   if (r === "lawyer") return "/lawyer-dashboard";
   if (r === "court_officer" || r === "court") return "/court-dashboard";
   if (r === "administrator" || r === "admin") return "/admin-panel";
+  if (r === "cyber_ops" || r === "cyber_officer") return "/cyber-ops";
   if (["dgp", "adg", "ig", "dig", "sp", "she_teams", "special"].includes(r)) return "/officer-dashboard";
   return "/citizen-dashboard";
 }
 
 export function isOfficerRole(userRole) {
-  const officerRoles = ["police", "si", "ci", "dsp", "sp", "dig", "ig", "adg", "dgp", "she_teams", "special"];
+  const officerRoles = ["police", "si", "ci", "dsp", "sp", "dig", "ig", "adg", "dgp", "she_teams", "special", "cyber_ops", "cyber_officer"];
   return officerRoles.includes(userRole?.toLowerCase());
 }
 

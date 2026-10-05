@@ -161,10 +161,12 @@ export default function Dashboard() {
   useEffect(() => {
     if (loading) return;
     if (isOfficer) {
-      // 3-level routing: police/si → station, dsp/ci → dsp dashboard, dgp/sp/ig/dig/adg → dgp dashboard
       if (["dgp","sp","ig","dig","adg","admin"].includes(utype)) navigate("/dgp-dashboard", { replace: true });
       else if (["dsp"].includes(utype)) navigate("/dsp-dashboard", { replace: true });
-      else navigate("/station-dashboard", { replace: true });
+      else if (["cyber_ops", "cyber_officer"].includes(utype)) navigate("/cyber-ops", { replace: true });
+      else if (["police_officer", "police"].includes(utype)) navigate("/officer-dashboard", { replace: true });
+      else if (["station_officer", "si", "ci"].includes(utype)) navigate("/station-dashboard", { replace: true });
+      else navigate("/officer-dashboard", { replace: true });
     } else if (utype === 'lawyer') navigate("/lawyer-dashboard", { replace: true });
     else if (utype === 'court') navigate("/court-dashboard", { replace: true });
     else navigate("/citizen-dashboard", { replace: true });

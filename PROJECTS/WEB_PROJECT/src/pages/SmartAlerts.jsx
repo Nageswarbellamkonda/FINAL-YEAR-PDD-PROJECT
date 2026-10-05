@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/lib/AuthContext";
 import { invokeLLM } from "@/lib/ai";
 import { useLanguage } from "../lib/LanguageContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,33 +9,113 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AlertTriangle, Shield, TrendingUp, MapPin, Clock, Loader2, RefreshCw, Zap, ArrowLeft } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import moment from "moment";
+import { subscribeAlertsRealtime, getAlertDestination } from "@/lib/alertsSync";
 
 const AP_DISTRICTS = ["Srikakulam","Vizianagaram","Visakhapatnam","East Godavari","West Godavari","Krishna","Guntur","Prakasam","Nellore","Kurnool","YSR Kadapa","Anantapur","Chittoor"];
 const TIME_SLOTS = ["6AM-9AM","9AM-12PM","12PM-3PM","3PM-6PM","6PM-9PM","9PM-12AM","12AM-3AM","3AM-6AM"];
 
 export default function SmartAlerts() {
+  const navigate = useNavigate();
   const { lang } = useLanguage();
+  const { user: authUser, profile } = useAuth();
+  const currentUser = profile ?? authUser ?? null;
+  const userRole = (currentUser?.user_type || currentUser?.role || '').toLowerCase();
+  const canManageAlerts = ['dgp', 'adg', 'ig', 'dig', 'sp', 'dsp', 'ci', 'si', 'administrator', 'system_admin', 'admin', 'cyber_ops', 'cyber_officer', 'police_officer', 'station_officer'].includes(userRole);
+
+  const handleManageAlerts = () => {
+    if (!currentUser) {
+      navigate('/login');
+      return;
+    }
+    const role = (currentUser?.role || currentUser?.user_type || '').toLowerCase();
+    if (['dsp', 'sp', 'commissioner', 'dgp', 'administrator', 'system_admin'].includes(role)) {
+      navigate('/dsp-dashboard?tab=alerts');
+    } else {
+      toast.error(lang === "te" ? "అనుమతి నిరాకరించబడింది: DSP లేదా అధీకృత అధికారి మాత్రమే అలెర్ట్‌లను నిర్వహించగలరు" : "Access Denied: Only authorized DSP officers can manage alerts.");
+      navigate('/dashboard');
+    }
+  };
+
   const [district, setDistrict] = useState("Visakhapatnam");
   const [timeSlot, setTimeSlot] = useState("6PM-9PM");
   const [loading, setLoading] = useState(false);
   const [alerts, setAlerts] = useState(null);
   const [complaints, setComplaints] = useState([]);
-  const [recentAlerts] = useState([
+  const [dbAlerts, setDbAlerts] = useState([]);
+  const [alertsLoading, setAlertsLoading] = useState(false);
+
+  const staticFallbackAlerts = [
     { type: "high", district: "Visakhapatnam", message: "Increased snatching incidents near Rythu Bazaar area between 7PM-9PM. Avoid isolated routes.", time: "2 hours ago", category: "snatching" },
     { type: "medium", district: "Guntur", message: "Cyber fraud activity spike detected — OTP fraud targeting senior citizens. Be alert.", time: "4 hours ago", category: "cyber_crime" },
     { type: "low", district: "Krishna", message: "Safe travel advisory: Extra patrol deployed on NH-16 during festival season.", time: "6 hours ago", category: "traffic" },
     { type: "high", district: "Kurnool", message: "Drug activity reported near Nandyal bus stand area. Citizens to report to 1800-425-5555.", time: "8 hours ago", category: "narcotics" },
     { type: "medium", district: "Chittoor", message: "Missing person alert issued for Tirupati area. See notice board for details.", time: "12 hours ago", category: "missing" },
-  ]);
+  ];
+
+  const fetchStationAlerts = async () => {
+    setAlertsLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('station_alerts')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(30);
+
+      if (!error && data) {
+        const activeAlerts = data.filter(a => {
+          if (a.is_active === false) return false;
+          const dest = getAlertDestination(a);
+          return dest === 'SMART_CRIME_ALERT' || dest === 'BOTH';
+        });
+        const formatted = activeAlerts.map(a => ({
+          id: a.id,
+          title: a.title,
+          type: (a.severity || 'medium').toLowerCase(),
+          district: a.district || a.target_audience?.district || 'All AP',
+          message: a.message,
+          time: a.created_at ? moment(a.created_at).fromNow() : 'Just now',
+          category: a.alert_type || a.target_audience?.alert_type || 'crime_alert',
+          publisher: a.publisher_name || a.published_by || a.target_audience?.publisher_name,
+          isLive: true
+        }));
+        setDbAlerts(formatted);
+      }
+    } catch (err) {
+      console.warn("Could not load station alerts:", err);
+    } finally {
+      setAlertsLoading(false);
+    }
+  };
 
   useEffect(() => {
     supabase.from('complaints').select('*').order('created_at', { ascending: false }).limit(200).then(({ data }) => {
       const dbCases = data || [];
       setComplaints(dbCases);
     });
+
+    fetchStationAlerts();
+
+    let unsubscribe = () => {};
+    try {
+      unsubscribe = subscribeAlertsRealtime(() => {
+        fetchStationAlerts();
+      });
+    } catch (err) {
+      console.warn("[SmartAlerts] Realtime subscription failed gracefully:", err);
+    }
+
+    return () => {
+      if (typeof unsubscribe === "function") {
+        try {
+          unsubscribe();
+        } catch (e) {
+          // ignore
+        }
+      }
+    };
   }, []);
 
   const generateAlerts = async () => {
@@ -102,8 +183,10 @@ Write in natural, clear language. Do NOT use markdown. Do NOT use asterisks (*) 
     }
   };
 
-  const riskColors = { high: "bg-red-100 border-red-300 text-red-800", medium: "bg-yellow-100 border-yellow-300 text-yellow-800", low: "bg-green-100 border-green-300 text-green-800" };
-  const riskBadgeColors = { high: "bg-red-600", medium: "bg-yellow-600", low: "bg-green-600" };
+  const riskColors = { high: "bg-red-100 border-red-300 text-red-800", medium: "bg-yellow-100 border-yellow-300 text-yellow-800", low: "bg-green-100 border-green-300 text-green-800", critical: "bg-red-200 border-red-400 text-red-900" };
+  const riskBadgeColors = { high: "bg-red-600", medium: "bg-yellow-600", low: "bg-green-600", critical: "bg-red-700" };
+
+  const displayedAlerts = dbAlerts.length > 0 ? [...dbAlerts, ...staticFallbackAlerts] : staticFallbackAlerts;
 
   return (
     <div className="max-w-4xl mx-auto py-8 px-4">
@@ -123,26 +206,55 @@ Write in natural, clear language. Do NOT use markdown. Do NOT use asterisks (*) 
       {/* Live Alerts */}
       <Card className="mb-6">
         <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
-            <motion.div animate={{ scale: [1, 1.2, 1] }} transition={{ duration: 1, repeat: Infinity }}>
-              <AlertTriangle className="w-4 h-4 text-red-500" />
-            </motion.div>
-            {lang === "te" ? "ఇటీవలి అలెర్ట్లు" : "Recent AP Police Alerts"}
-            <Badge className="bg-red-500 text-white text-[10px] ml-auto animate-pulse">LIVE</Badge>
-          </CardTitle>
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <motion.div animate={{ scale: [1, 1.2, 1] }} transition={{ duration: 1, repeat: Infinity }}>
+                <AlertTriangle className="w-4 h-4 text-red-500" />
+              </motion.div>
+              {lang === "te" ? "ఇటీవలి అలెర్ట్లు" : "Recent AP Police Alerts"}
+              <Badge className="bg-red-500 text-white text-[10px] animate-pulse">LIVE</Badge>
+            </CardTitle>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 px-2 text-xs gap-1"
+                onClick={fetchStationAlerts}
+                disabled={alertsLoading}
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${alertsLoading ? 'animate-spin' : ''}`} />
+                {lang === "te" ? "రిఫ్రెష్" : "Refresh"}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 px-2 text-xs gap-1 border-red-200 text-red-700 hover:bg-red-50"
+                onClick={handleManageAlerts}
+                title="Manage Alerts (DSP authorization required)"
+              >
+                <Shield className="w-3.5 h-3.5" />
+                {lang === "te" ? "అలెర్ట్స్ నిర్వహణ" : "Manage Alerts"}
+              </Button>
+            </div>
+          </div>
         </CardHeader>
         <CardContent className="pt-0 space-y-2">
-          {recentAlerts.map((alert, i) => (
-            <motion.div key={i} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.08 }}
-              className={`flex items-start gap-3 p-3 rounded-xl border ${riskColors[alert.type]}`}>
-              <div className={`px-1.5 py-0.5 rounded text-[9px] font-bold text-white flex-shrink-0 mt-0.5 ${riskBadgeColors[alert.type]}`}>
-                {alert.type.toUpperCase()}
+          {displayedAlerts.map((alert, i) => (
+            <motion.div key={alert.id || i} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.05 }}
+              className={`flex items-start gap-3 p-3 rounded-xl border ${riskColors[alert.type] || riskColors.medium}`}>
+              <div className={`px-1.5 py-0.5 rounded text-[9px] font-bold text-white flex-shrink-0 mt-0.5 ${riskBadgeColors[alert.type] || riskBadgeColors.medium}`}>
+                {(alert.type || 'MEDIUM').toUpperCase()}
               </div>
               <div className="flex-1 min-w-0">
+                {alert.title && alert.title !== alert.message && (
+                  <h4 className="text-sm font-semibold text-foreground leading-snug mb-0.5">{alert.title}</h4>
+                )}
                 <p className="text-sm font-medium leading-snug">{alert.message}</p>
-                <div className="flex items-center gap-2 mt-1">
+                <div className="flex flex-wrap items-center gap-2 mt-1">
                   <span className="text-[10px] flex items-center gap-1"><MapPin className="w-3 h-3" />{alert.district}</span>
                   <span className="text-[10px] flex items-center gap-1"><Clock className="w-3 h-3" />{alert.time}</span>
+                  {alert.publisher && <span className="text-[10px] text-muted-foreground">• By {alert.publisher}</span>}
+                  {alert.isLive && <Badge variant="outline" className="text-[9px] py-0 px-1 border-primary/40 text-primary">OFFICIAL</Badge>}
                 </div>
               </div>
             </motion.div>

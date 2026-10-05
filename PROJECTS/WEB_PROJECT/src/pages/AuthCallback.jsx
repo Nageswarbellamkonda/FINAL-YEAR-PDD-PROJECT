@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import { Loader2 } from "lucide-react";
+import { getDashboardPath } from "@/lib/authRouting";
 
 /**
  * Handles Supabase email-verification redirect.
@@ -54,35 +55,84 @@ export default function AuthCallback() {
 
     (async () => {
       try {
+        const queryParams = new URLSearchParams(window.location.search);
+        const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+
+        // Check for error in query or hash
+        const errorDesc = queryParams.get('error_description') || hashParams.get('error_description') || queryParams.get('error') || hashParams.get('error');
+        if (errorDesc) {
+          console.error("Auth callback received error:", errorDesc);
+          if (!cancelled) {
+            setMessage(`Verification notice: ${errorDesc.replace(/\+/g, ' ')}`);
+            setTimeout(() => {
+              if (!cancelled) navigate("/login?verified=1", { replace: true });
+            }, 2000);
+          }
+          return;
+        }
+
+        // 1. Handle PKCE code exchange if present
+        const code = queryParams.get('code');
+        if (code) {
+          try {
+            const { error: exchangeErr } = await supabase.auth.exchangeCodeForSession(code);
+            if (exchangeErr) console.warn("Code exchange notice:", exchangeErr.message);
+          } catch (e) {
+            console.warn("exchangeCodeForSession caught:", e);
+          }
+        }
+
+        // 2. Handle token_hash verification if present
+        const tokenHash = queryParams.get('token_hash');
+        const otpType = queryParams.get('type') || 'email';
+        if (tokenHash) {
+          try {
+            const { error: otpErr } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type: otpType });
+            if (otpErr) console.warn("verifyOtp notice:", otpErr.message);
+          } catch (e) {
+            console.warn("verifyOtp caught:", e);
+          }
+        }
+
+        // 3. Retrieve or refresh session
         let result = await supabase.auth.getSession();
         if ((!result?.data?.session || !result.data.session.user) && typeof supabase.auth.getSessionFromUrl === 'function') {
-          result = await supabase.auth.getSessionFromUrl();
+          try {
+            result = await supabase.auth.getSessionFromUrl();
+          } catch (e) {
+            // ignore
+          }
         }
 
-        const { data, error } = result;
-        if (error) {
-          console.error("Auth callback session error:", error);
-        }
+        const isRecovery = queryParams.get('type') === 'recovery' || hashParams.get('type') === 'recovery' || otpType === 'recovery';
 
-        const user = data?.session?.user ?? null;
         if (user?.id) {
+          if (isRecovery) {
+            if (!cancelled) {
+              setMessage("Recovery session established! Redirecting to reset password…");
+              navigate("/reset-password", { replace: true });
+              return;
+            }
+          }
+
           const { data: existingProfile, error: profileError } = await supabase
             .from('user_profiles')
-            .select('id')
+            .select('*')
             .eq('id', user.id)
             .maybeSingle();
 
-          if (!profileError && !existingProfile) {
+          if (!profileError && existingProfile) {
+            userRole = existingProfile.role || userRole;
+          } else if (!profileError && !existingProfile) {
             const metadata = getUserMetadata(user);
             const pending = getPendingProfile();
             
-            // Check metadata for profile data
             const hasMetadataProfile = metadata.full_name || metadata.fullName || metadata.name;
             const profileSource = hasMetadataProfile
               ? {
                   full_name: metadata.full_name || metadata.fullName || metadata.name,
                   phone: metadata.phone,
-                  role: metadata.role || 'citizen',
+                  role: metadata.requested_role || metadata.role || 'citizen',
                   district: metadata.district,
                   mandal: metadata.mandal,
                   police_station: metadata.police_station,
@@ -94,7 +144,9 @@ export default function AuthCallback() {
 
             if (profileSource && profileSource.full_name) {
               try {
-                await supabase.from('user_profiles').upsert(buildProfileRow(user, profileSource), { onConflict: 'id' });
+                const newRow = buildProfileRow(user, profileSource);
+                userRole = newRow.role || userRole;
+                await supabase.from('user_profiles').upsert(newRow, { onConflict: 'id' });
                 try {
                   sessionStorage.removeItem('pending_profile');
                 } catch (err) {
@@ -103,13 +155,19 @@ export default function AuthCallback() {
               } catch (upsertErr) {
                 console.error('Profile creation failed during email verification:', upsertErr);
               }
-            } else {
-              console.warn('No profile data found for user during email verification. User:', user.id);
+            }
+          }
+
+          if (!cancelled) {
+            setMessage("Email verified successfully! Redirecting…");
+            // If user has active session and completed profile, go to dashboard directly
+            if (existingProfile?.profile_completed || user) {
+              const dest = getDashboardPath(userRole);
+              navigate(dest, { replace: true });
+              return;
             }
           }
         }
-
-        await supabase.auth.signOut();
 
         if (!cancelled) {
           setMessage("Email verified. Redirecting to login…");

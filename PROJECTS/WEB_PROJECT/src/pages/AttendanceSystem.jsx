@@ -15,6 +15,7 @@ const AP_ONLY_DATA = STATES_DATA["Andhra Pradesh"];
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
 import moment from "moment";
+import { getDashboardPath } from "@/lib/authRouting";
 
 // Haversine distance in meters
 function calcDistance(lat1, lon1, lat2, lon2) {
@@ -137,24 +138,51 @@ export default function AttendanceSystem() {
 
   const { user: authUser, profile } = useAuth();
 
-  useEffect(() => { loadData(); }, [authUser, profile]);
+  const OFFICER_ROLES = [
+    "police", "police_officer", "station_officer", "station", "station_admin",
+    "special", "si", "ci", "dsp", "sp", "dig", "ig", "dgp", "she_teams", "admin", "system_admin"
+  ];
+
+  useEffect(() => {
+    loadData();
+    // Realtime attendance sync
+    const channel = supabase
+      .channel('attendance-system-sync')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'attendances' }, () => {
+        loadData();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [authUser, profile]);
 
   const loadData = async () => {
     const me = profile ?? authUser ?? null;
     setUser(me);
-    const utype = me?.user_type || me?.role || "";
-    if (!["police", "special", "si", "ci", "dsp", "sp", "dig", "ig", "dgp", "she_teams"].includes(utype)) {
+    const utype = (me?.user_type || me?.role || "").toLowerCase();
+    if (!OFFICER_ROLES.includes(utype)) {
       setLoading(false);
       return;
     }
+    const myStation = me?.police_station || me?.station || (me?.role === 'station_officer' ? 'MVP Colony PS' : 'Visakhapatnam I Town');
+    const myDistrict = me?.district || 'Visakhapatnam';
+
     // Find station coordinates
-    const coords = findStationCoords(me?.station, me?.district);
+    const coords = findStationCoords(myStation, myDistrict);
     setStationCoords(coords);
+
     // Load today's attendance
     const today = moment().format("YYYY-MM-DD");
-    const { data: records = [] } = await supabase.from('attendances').select('*').eq('officer_email', me?.email).order('created_at', { ascending: false }).limit(30);
+    const { data: records = [] } = await supabase
+      .from('attendances')
+      .select('*')
+      .eq('officer_email', me?.email)
+      .order('created_at', { ascending: false })
+      .limit(30);
     setAttendanceHistory(records);
-    const todayRec = records.find(r => moment(r.marked_at).format("YYYY-MM-DD") === today);
+    const todayRec = records.find(r => r.date === today || moment(r.created_at || r.marked_at).format("YYYY-MM-DD") === today);
     setTodayRecord(todayRec || null);
     setLoading(false);
   };
@@ -197,21 +225,30 @@ export default function AttendanceSystem() {
     setMarking(true);
     const now = new Date().toISOString();
     const isLate = checkIfLate(shift, now);
-    await supabase.from('attendances').insert([{
+    const userStation = selStation || user?.police_station || user?.station || (user?.role === 'station_officer' ? 'MVP Colony PS' : 'Visakhapatnam I Town');
+    const userDistrict = selDistrict || user?.district || 'Visakhapatnam';
+    const userMandal = selMandal || 'Urban';
+
+    const isWithinRadius = distance !== null && distance <= ATTENDANCE_RADIUS_METERS;
+    const payload = {
       officer_email: user.email,
       officer_name: user.full_name || user.email,
-      station: effectiveStation || "Unknown",
-      district: user.district || "Unknown",
-      shift,
+      police_station: userStation,
+      district: userDistrict,
+      mandal: userMandal,
+      date: moment().format("YYYY-MM-DD"),
       status: isLate ? "late" : "present",
-      marked_at: now,
-      latitude: gpsLocation.lat,
-      longitude: gpsLocation.lng,
-      distance_meters: distance,
-      location_verified: true,
-      role: user.user_type || user.role || "officer",
-      remarks: `Marked via GPS. Accuracy: ${Math.round(gpsLocation.accuracy || 0)}m`,
-    }]);
+      verified: isWithinRadius,
+    };
+
+    const { error: insertErr } = await supabase.from('attendances').insert([payload]);
+    if (insertErr) {
+      console.error("Attendance insert error:", insertErr);
+      toast.error("Failed to mark attendance: " + insertErr.message);
+      setMarking(false);
+      return;
+    }
+
     toast.success("✅ Attendance marked successfully!");
     setMarking(false);
     loadData();
@@ -227,11 +264,11 @@ export default function AttendanceSystem() {
   }
 
   const withinRadius = distance !== null && distance <= ATTENDANCE_RADIUS_METERS;
-  const effectiveStation = selStation || user?.station || "";
+  const effectiveStation = selStation || user?.police_station || user?.station || "";
 
   if (loading) return <div className="flex items-center justify-center min-h-[60vh]"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
 
-  const isOfficer = ["police", "special", "si", "ci", "dsp", "sp", "dig", "ig", "dgp", "she_teams", "admin"].includes((user?.user_type || user?.role || "").toLowerCase());
+  const isOfficer = OFFICER_ROLES.includes((user?.user_type || user?.role || "").toLowerCase());
 
   if (!isOfficer) {
     return (
@@ -239,7 +276,7 @@ export default function AttendanceSystem() {
         <Shield className="w-16 h-16 text-muted-foreground/30 mx-auto mb-4" />
         <h2 className="font-heading font-bold text-xl mb-2">Officers Only</h2>
         <p className="text-muted-foreground mb-4">Attendance system is available for police officers only.</p>
-        <Button asChild variant="outline"><Link to="/dashboard">Back to Dashboard</Link></Button>
+        <Button asChild variant="outline"><Link to={getDashboardPath(user?.role || user?.user_type || 'citizen')}>Back to Dashboard</Link></Button>
       </div>
     );
   }
@@ -247,7 +284,11 @@ export default function AttendanceSystem() {
   return (
     <div className="max-w-3xl mx-auto py-8 px-4">
       <div className="flex items-center gap-3 mb-6 flex-wrap">
-        <Button asChild variant="ghost" size="sm"><Link to="/dashboard"><ArrowLeft className="w-4 h-4 mr-1" />Back</Link></Button>
+        <Button asChild variant="ghost" size="sm">
+          <Link to={getDashboardPath(user?.role || user?.user_type || 'police_officer')}>
+            <ArrowLeft className="w-4 h-4 mr-1" />Back
+          </Link>
+        </Button>
         <div className="flex-1">
           <h1 className="font-heading font-bold text-2xl flex items-center gap-2">
             <Calendar className="w-6 h-6 text-primary" /> GPS Attendance System
@@ -401,11 +442,18 @@ export default function AttendanceSystem() {
             <CheckCircle2 className="w-12 h-12 text-green-600 mx-auto mb-2" />
             <p className="font-semibold text-green-800">Attendance Marked for Today!</p>
             <p className="text-sm text-green-700 mt-1">
-              {shiftLabels[todayRecord.shift]} • {moment(todayRecord.marked_at).format("hh:mm A")} • {todayRecord.distance_meters}m from station
+              {todayRecord.police_station || todayRecord.district || "Station"} • {moment(todayRecord.created_at || todayRecord.date).format("hh:mm A • DD MMM YYYY")}
             </p>
-            <Badge className={`mt-2 ${todayRecord.status === "present" ? "bg-green-600" : "bg-yellow-600"} text-white`}>
-              {todayRecord.status?.toUpperCase()}
-            </Badge>
+            <div className="flex items-center justify-center gap-2 mt-2">
+              <Badge className={`${todayRecord.status === "present" ? "bg-green-600" : "bg-yellow-600"} text-white`}>
+                {todayRecord.status?.toUpperCase()}
+              </Badge>
+              {todayRecord.verified && (
+                <Badge variant="outline" className="border-green-600 text-green-700 bg-white">
+                  ✓ Geo-verified
+                </Badge>
+              )}
+            </div>
           </CardContent>
         </Card>
       )}
@@ -425,12 +473,14 @@ export default function AttendanceSystem() {
               {attendanceHistory.map(r => (
                 <div key={r.id} className="flex items-center justify-between border border-border rounded-lg p-3 text-sm">
                   <div>
-                    <p className="font-medium">{moment(r.marked_at).format("ddd, DD MMM YYYY")}</p>
-                    <p className="text-xs text-muted-foreground">{shiftLabels[r.shift]} • {r.station} • {r.distance_meters}m</p>
+                    <p className="font-medium">{moment(r.date || r.created_at).format("ddd, DD MMM YYYY")}</p>
+                    <p className="text-xs text-muted-foreground">{r.police_station || r.district || "AP Police"} {r.verified ? "• Geo-verified" : ""}</p>
                   </div>
-                  <Badge className={r.status === "present" ? "bg-green-100 text-green-700 border-green-300" : r.status === "late" ? "bg-yellow-100 text-yellow-700 border-yellow-300" : "bg-red-100 text-red-700 border-red-300"} variant="outline">
-                    {r.status?.toUpperCase()}
-                  </Badge>
+                  <div className="flex items-center gap-2">
+                    <Badge className={r.status === "present" ? "bg-green-100 text-green-700 border-green-300" : r.status === "late" ? "bg-yellow-100 text-yellow-700 border-yellow-300" : "bg-red-100 text-red-700 border-red-300"} variant="outline">
+                      {r.status?.toUpperCase()}
+                    </Badge>
+                  </div>
                 </div>
               ))}
             </div>

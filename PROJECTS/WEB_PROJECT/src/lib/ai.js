@@ -7,7 +7,7 @@ const inFlightRequests = new Map();
 export async function invokeLLM(prompt, systemPrompt = "You are a helpful AI assistant.") {
   const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
   const baseURL = import.meta.env.VITE_AI_BASE_URL || "https://generativelanguage.googleapis.com/v1beta/openai";
-  const model = import.meta.env.VITE_AI_MODEL || "gemini-3.5-flash";
+  const model = import.meta.env.VITE_AI_MODEL || "gemini-1.5-flash";
 
   if (!apiKey) {
     console.error("[AI_SERVICE] ERROR: VITE_GEMINI_API_KEY is missing from environment variables.");
@@ -77,6 +77,9 @@ export async function invokeLLM(prompt, systemPrompt = "You are a helpful AI ass
       if (!response.ok) {
         const errorText = await response.text();
         console.error(`[AI_SERVICE] Gemini API HTTP Error: ${response.status} ${response.statusText}`, errorText);
+        if (response.status === 403 && (errorText.includes("leaked") || errorText.includes("PERMISSION_DENIED"))) {
+          throw new Error("LEAKED_API_KEY: The Gemini API key in .env has been revoked by Google Security scanners. Please update VITE_GEMINI_API_KEY in .env with a fresh key.");
+        }
         throw new Error(`AI API Error: ${response.status} ${response.statusText}`);
       }
 

@@ -8,6 +8,8 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Loader2, KeyRound } from 'lucide-react';
 
+import { getResetPasswordUrl } from '@/lib/config';
+
 export default function ForgotPassword() {
   const { lang } = useLanguage();
   const navigate = useNavigate();
@@ -17,7 +19,9 @@ export default function ForgotPassword() {
   const [confirmPassword, setConfirmPassword] = useState('');
   
   const [loading, setLoading] = useState(false);
+  const [sendingEmail, setSendingEmail] = useState(false);
   const [error, setError] = useState('');
+  const [emailSentMessage, setEmailSentMessage] = useState('');
 
   const validatePassword = (pwd) => {
     if (pwd.length < 8) return lang === 'te' ? 'పాస్‌వర్డ్ కనీసం 8 అక్షరాలు ఉండాలి' : 'Password must be at least 8 characters.';
@@ -26,11 +30,42 @@ export default function ForgotPassword() {
     return null;
   };
 
+  const handleSendResetEmail = async () => {
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail) {
+      setError(lang === 'te' ? 'దయచేసి ఇమెయిల్ నమోదు చేయండి' : 'Please enter your email address first.');
+      return;
+    }
+    setSendingEmail(true);
+    setError('');
+    setEmailSentMessage('');
+    try {
+      const { error: resetErr } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
+        redirectTo: getResetPasswordUrl()
+      });
+      if (resetErr) {
+        if (resetErr.message?.includes('rate limit')) {
+          setError(lang === 'te' ? 'ఇమెయిల్ పంపడం రేట్-పరిమితికి చేరింది. దయచేసి క్రింద ఉన్న ఫారమ్‌ను ఉపయోగించి నేరుగా నవీకరించండి.' : 'Email delivery is currently rate-limited by Supabase. You can update your password directly using the form below.');
+        } else {
+          setError(resetErr.message);
+        }
+      } else {
+        setEmailSentMessage(lang === 'te' ? 'రీసెట్ లింక్ మీ ఇమెయిల్‌కి పంపబడింది. దయచేసి ఇన్‌బాక్స్ తనిఖీ చేయండి.' : 'Recovery link sent! Please check your inbox and click the link to reset your password.');
+      }
+    } catch (e) {
+      setError(e.message || 'Failed to send recovery email.');
+    } finally {
+      setSendingEmail(false);
+    }
+  };
+
   const handleUpdatePassword = async (e) => {
     e.preventDefault();
-    if (!email.trim() || !newPassword || !confirmPassword) return;
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail || !newPassword || !confirmPassword) return;
 
     setError('');
+    setEmailSentMessage('');
     
     const pwdError = validatePassword(newPassword);
     if (pwdError) {
@@ -46,9 +81,11 @@ export default function ForgotPassword() {
     setLoading(true);
 
     try {
+      // Pass both 'password' and 'newPassword' so edge function requirements are satisfied
       const { data, error: invokeError } = await supabase.functions.invoke('reset-password', {
         body: {
-          email: email.trim(),
+          email: cleanEmail,
+          password: newPassword,
           newPassword,
           confirmPassword
         }
@@ -66,6 +103,7 @@ export default function ForgotPassword() {
       navigate('/login?reset=1', { replace: true });
     } catch (err) {
       setLoading(false);
+      console.error('[ForgotPassword] Update error:', err);
       setError(err.message || (lang === 'te' ? 'పనిలో లోపం జరిగింది' : 'An error occurred.'));
     }
   };
@@ -138,12 +176,30 @@ export default function ForgotPassword() {
                 />
               </div>
 
+              {emailSentMessage && (
+                <p className="text-sm text-green-700 text-center font-medium bg-green-50 p-2.5 rounded-md border border-green-200">
+                  {emailSentMessage}
+                </p>
+              )}
+
               {error && <p className="text-sm text-red-600 text-center font-medium bg-red-50 p-2 rounded-md">{error}</p>}
 
               <Button type="submit" className="w-full h-11 mt-2" disabled={loading || !email || !newPassword || !confirmPassword}>
                 {loading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                 {lang === 'te' ? 'నవీకరించండి' : 'Update Password'}
               </Button>
+
+              <div className="pt-2 text-center">
+                <button
+                  type="button"
+                  onClick={handleSendResetEmail}
+                  disabled={sendingEmail || !email}
+                  className="text-xs text-primary hover:underline font-medium inline-flex items-center gap-1 disabled:opacity-50"
+                >
+                  {sendingEmail && <Loader2 className="w-3 h-3 animate-spin" />}
+                  {lang === 'te' ? 'లేదా ఇమెయిల్‌కి రికవరీ లింక్ పంపండి' : 'Or send recovery link to my email'}
+                </button>
+              </div>
             </form>
             
             <div className="mt-6 text-center">

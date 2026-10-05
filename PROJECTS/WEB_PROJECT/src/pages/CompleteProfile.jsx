@@ -96,6 +96,8 @@ function normalizeLegacyRole(role) {
     admin: AUTH_ROLES.ADMINISTRATOR,
     administrator: AUTH_ROLES.ADMINISTRATOR,
     dgp: AUTH_ROLES.ADMINISTRATOR,
+    cyber_ops: AUTH_ROLES.CYBER_OPS,
+    cyber_officer: AUTH_ROLES.CYBER_OPS,
   };
   return map[r] || AUTH_ROLES.CITIZEN;
 }

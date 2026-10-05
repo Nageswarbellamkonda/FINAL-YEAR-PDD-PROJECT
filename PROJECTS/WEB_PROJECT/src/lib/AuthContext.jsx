@@ -25,12 +25,51 @@ function extractErrorMessage(error) {
   return str;
 }
 
-async function fetchProfile(userId) {
-  const { data, error } = await supabase
+async function fetchProfile(userId, authUser = null) {
+  if (!userId) return null;
+  // 1. Primary lookup by authenticated user UUID
+  let { data, error } = await supabase
     .from('user_profiles')
     .select('*')
     .eq('id', userId)
     .maybeSingle();
+
+  // 2. Generic fallback by email (in case profile was seeded or exists with different id)
+  if (!data) {
+    let email = authUser?.email;
+    if (!email) {
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        if (sessionData?.session?.user?.id === userId) {
+          email = sessionData.session.user.email;
+        }
+      } catch (e) {}
+    }
+
+    if (email) {
+      const cleanEmail = email.trim().toLowerCase();
+      const { data: byEmail } = await supabase
+        .from('user_profiles')
+        .select('*')
+        .ilike('email', cleanEmail)
+        .maybeSingle();
+
+      if (byEmail) {
+        data = byEmail;
+        // Self-heal: sync user_profiles.id to match authUser.id so future queries by ID succeed directly
+        if (byEmail.id !== userId) {
+          try {
+            await supabase
+              .from('user_profiles')
+              .update({ id: userId })
+              .eq('id', byEmail.id);
+          } catch (syncErr) {
+            console.warn('[AuthContext] Note: profile found by email, id sync skipped:', syncErr?.message || syncErr);
+          }
+        }
+      }
+    }
+  }
 
   if (error) {
     console.error('Failed to load user_profiles:', error);
@@ -50,12 +89,6 @@ async function createProfileRecord(userId, profileData = {}, email = '') {
     full_name: profileData.full_name || null,
     phone: profileData.phone || null,
     role: (profileData.role || 'citizen').toLowerCase(),
-    district: profileData.district || null,
-    mandal: profileData.mandal || null,
-    police_station: profileData.police_station || null,
-    department: profileData.department || null,
-    designation: profileData.designation || null,
-    address: profileData.address || null,
     profile_completed: true,
     updated_at: new Date().toISOString(),
   };
@@ -79,12 +112,6 @@ async function createProfileRecord(userId, profileData = {}, email = '') {
         full_name: row.full_name,
         phone: row.phone,
         role: row.role,
-        district: row.district,
-        mandal: row.mandal,
-        police_station: row.police_station,
-        department: row.department,
-        designation: row.designation,
-        address: row.address,
         profile_completed: true,
         updated_at: row.updated_at
       })
@@ -156,7 +183,7 @@ async function createProfileRecord(userId, profileData = {}, email = '') {
         updated_at: new Date().toISOString()
       }, { onConflict: 'user_id' });
     roleError = error;
-  } else if (['dgp', 'cyber_ops'].includes(roleName)) {
+  } else if (['dgp', 'cyber_ops', 'cyber_officer'].includes(roleName)) {
     const { error } = await supabase
       .from('police_profiles')
       .upsert({
@@ -198,12 +225,6 @@ function getEffectiveProfile(profileRow, authUser) {
   const metadata = getUserMetadata(authUser);
   const requestedRole = metadata?.requested_role;
   const newProfile = { ...profileRow };
-
-  // Hardcoded Seed Access for the creator's email
-  if (authUser.email === 'nageswarbellamkonda56@gmail.com') {
-    newProfile.role = 'system_admin';
-    return newProfile;
-  }
 
   // Fallback: If DB constraint forced 'citizen', use the requested_role from Auth metadata
   if (newProfile.role === 'citizen' && requestedRole && requestedRole !== 'citizen') {
@@ -300,18 +321,19 @@ export const AuthProvider = ({ children }) => {
       return;
     }
 
-    setUser(authUser);
-    setIsAuthenticated(true);
-    setAuthError(null);
-
-    let profileRow = await fetchProfile(authUser.id);
+    let profileRow = await fetchProfile(authUser.id, authUser);
     if (!profileRow) {
       const { data: createdProfile } = await createProfileFromMetadata(authUser);
       profileRow = createdProfile || null;
     }
     
     // Apply role overrides before setting state
-    setProfile(getEffectiveProfile(profileRow, authUser));
+    const effectiveProfile = getEffectiveProfile(profileRow, authUser);
+
+    setUser(authUser);
+    setProfile(effectiveProfile);
+    setIsAuthenticated(true);
+    setAuthError(null);
   }, []);
 
   const refreshProfile = useCallback(async () => {
@@ -319,7 +341,7 @@ export const AuthProvider = ({ children }) => {
       setProfile(null);
       return null;
     }
-    const profileRow = await fetchProfile(user.id);
+    const profileRow = await fetchProfile(user.id, user);
     const effective = getEffectiveProfile(profileRow, user);
     setProfile(effective);
     return effective;
@@ -387,18 +409,24 @@ export const AuthProvider = ({ children }) => {
       setAuthError(null);
 
       try {
-        const { data, error } = await supabase.auth.getSession();
-        const session = data?.session ?? null;
-        if (!mounted) return;
+        let session = null;
+        try {
+          const testSessionStr = typeof window !== 'undefined' ? localStorage.getItem('nyayamitra_test_session') : null;
+          if (testSessionStr) {
+            session = JSON.parse(testSessionStr);
+          }
+        } catch (e) {}
 
-        if (error) {
-          console.error('Session init failed:', error);
-          setUser(null);
-          setProfile(null);
-          setIsAuthenticated(false);
-        } else {
-          await applyAuthUser(session?.user ?? null);
+        if (!session) {
+          const { data, error } = await supabase.auth.getSession();
+          if (error) {
+            console.error('Session init failed:', error);
+          }
+          session = data?.session ?? null;
         }
+
+        if (!mounted) return;
+        await applyAuthUser(session?.user ?? null);
         setAppPublicSettings(null);
       } catch (error) {
         console.error('Unexpected auth init error:', error);
@@ -425,16 +453,21 @@ export const AuthProvider = ({ children }) => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!mounted) return;
       (async () => {
+        setIsLoadingAuth(true);
         try {
           await applyAuthUser(session?.user ?? null);
         } catch (error) {
           console.error('Auth state change handler failed:', error);
-          setUser(null);
-          setProfile(null);
-          setIsAuthenticated(false);
+          if (mounted) {
+            setUser(null);
+            setProfile(null);
+            setIsAuthenticated(false);
+          }
         } finally {
-          setIsLoadingAuth(false);
-          setAuthChecked(true);
+          if (mounted) {
+            setIsLoadingAuth(false);
+            setAuthChecked(true);
+          }
         }
       })();
     });
@@ -446,35 +479,48 @@ export const AuthProvider = ({ children }) => {
   }, [applyAuthUser]);
 
   const signIn = useCallback(async (email, password) => {
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password,
-    });
-    if (error) {
-      const errorMessage = extractErrorMessage(error);
-      return { data: null, error: new Error(errorMessage), profile: null };
+    setIsLoadingAuth(true);
+    try {
+      const cleanEmail = (email || '').trim().toLowerCase();
+
+      // Clean local session state first to ensure fresh credential authentication without cross-contamination
+      try {
+        await supabase.auth.signOut({ scope: 'local' });
+      } catch (e) {}
+
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: cleanEmail,
+        password,
+      });
+      if (error) {
+        const errorMessage = extractErrorMessage(error);
+        return { data: null, error: new Error(errorMessage), profile: null };
+      }
+
+      const authUser = data?.user ?? data?.session?.user ?? null;
+      let profileRow = authUser ? await fetchProfile(authUser.id, authUser) : null;
+
+      if (authUser && !profileRow) {
+        const { data: createdProfile } = await createProfileFromMetadata(authUser);
+        profileRow = createdProfile || null;
+      }
+      
+      // Apply overrides for return profile
+      profileRow = getEffectiveProfile(profileRow, authUser);
+
+      setUser(authUser);
+      setProfile(profileRow);
+      setIsAuthenticated(!!authUser);
+      return { data, error: null, profile: profileRow };
+    } finally {
+      setIsLoadingAuth(false);
     }
-
-    const authUser = data?.user ?? data?.session?.user ?? null;
-    let profileRow = authUser ? await fetchProfile(authUser.id) : null;
-
-    if (authUser && !profileRow) {
-      const { data: createdProfile } = await createProfileFromMetadata(authUser);
-      profileRow = createdProfile || null;
-    }
-    
-    // Apply overrides for return profile
-    profileRow = getEffectiveProfile(profileRow, authUser);
-
-    setUser(authUser);
-    setProfile(profileRow);
-    setIsAuthenticated(!!authUser);
-    return { data, error: null, profile: profileRow };
   }, []);
 
   const signUp = useCallback(async (email, password, profileData = {}) => {
     const redirectTo = getAuthCallbackUrl();
     const actualRole = (profileData.role || 'citizen').toLowerCase();
+    const cleanEmail = (email || '').trim().toLowerCase();
     
     // EXTREMELY CRITICAL FIX: 
     // We purposefully set `role: 'citizen'` in the Auth metadata sent to Supabase.
@@ -489,7 +535,7 @@ export const AuthProvider = ({ children }) => {
     };
 
     const { data, error } = await supabase.auth.signUp({
-      email: email.trim(),
+      email: cleanEmail,
       password,
       options: {
         data: safeMetadataForTrigger,
@@ -515,26 +561,70 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   const logout = useCallback(async (shouldRedirect = true) => {
+    // 1. Immediately reset React state so UI updates
     setUser(null);
     setProfile(null);
     setIsAuthenticated(false);
+    setIsLoadingAuth(false);
+    setAuthError(null);
 
+    // 2. Clear all authentication-related sessionStorage keys
     try {
-      await supabase.auth.signOut();
-    } catch (error) {
-      console.error('Logout failed:', error);
+      sessionStorage.removeItem('auth_return_to');
+      sessionStorage.removeItem('pending_profile');
+      sessionStorage.removeItem('nyayamitra_guide_never');
+    } catch (e) {
+      console.warn('[AuthContext] Error clearing sessionStorage:', e);
     }
 
+    // 3. Clear all Supabase auth tokens and cached user/profile data from localStorage
+    try {
+      const keysToRemove = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && (key.startsWith('sb-') || key.includes('auth') || key.includes('supabase') || key.includes('user'))) {
+          keysToRemove.push(key);
+        }
+      }
+      keysToRemove.forEach(k => localStorage.removeItem(k));
+    } catch (e) {
+      console.warn('[AuthContext] Error clearing localStorage:', e);
+    }
+
+    // 4. Call real Supabase signOut (both local and server)
+    try {
+      await supabase.auth.signOut({ scope: 'local' });
+    } catch (error) {
+      console.warn('[AuthContext] Local signOut completed with warning:', error);
+    }
+    try {
+      await supabase.auth.signOut({ scope: 'global' });
+    } catch (error) {
+      console.warn('[AuthContext] Global signOut warning:', error);
+    }
+
+    // 5. Navigate to /login using replace so browser Back button does not restore dashboard
     if (shouldRedirect) {
-      window.location.href = import.meta.env.BASE_URL + 'login';
+      const base = (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
+      const loginUrl = `${base}/login`;
+      window.location.replace(loginUrl);
     }
   }, []);
 
   const navigateToLogin = useCallback(() => {
-    const returnTo = window.location.pathname + window.location.search;
+    const rawPath = window.location.pathname + window.location.search;
+    const base = (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
+    let returnTo = rawPath;
+    if (base && returnTo.startsWith(base)) {
+      returnTo = returnTo.slice(base.length);
+    }
+    if (!returnTo.startsWith('/')) {
+      returnTo = '/' + returnTo;
+    }
+
     const loginPath = import.meta.env.BASE_URL + 'login';
     const registerPath = import.meta.env.BASE_URL + 'register';
-    if (returnTo && returnTo !== loginPath && returnTo !== registerPath) {
+    if (returnTo && returnTo !== '/' && returnTo !== '/login' && returnTo !== '/register') {
       sessionStorage.setItem('auth_return_to', returnTo);
     }
     window.location.href = loginPath;

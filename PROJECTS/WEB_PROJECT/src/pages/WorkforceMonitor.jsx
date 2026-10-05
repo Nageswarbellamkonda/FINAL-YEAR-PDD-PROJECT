@@ -17,6 +17,7 @@ import {
 import { Link } from "react-router-dom";
 import { hasPermission } from "@/lib/rbac";
 import moment from "moment";
+import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 
 const AP_DISTRICTS = ["Visakhapatnam","Nellore","Tirupati","Guntur","Krishna","East Godavari","Kurnool","Anantapur"];
 const PIE_COLORS = ["#059669","#d97706","#dc2626","#1a56db"];
@@ -31,7 +32,32 @@ export default function WorkforceMonitor() {
   const [districtFilter, setDistrictFilter] = useState("all");
   const [dateRange, setDateRange] = useState("today");
 
-  useEffect(() => { loadData(); }, [districtFilter, dateRange]);
+  useRealtimeSync(['attendances', 'duty_assignments'], () => {
+    loadData();
+  });
+
+  useEffect(() => { loadData(); }, [districtFilter, dateRange, authUser, profile]);
+
+  const parseDuty = (d) => {
+    let extra = {};
+    if (d.notes) {
+      try {
+        if (typeof d.notes === 'string' && d.notes.trim().startsWith('{')) {
+          extra = JSON.parse(d.notes);
+        } else if (typeof d.notes === 'object' && d.notes !== null) {
+          extra = d.notes;
+        }
+      } catch (e) {}
+    }
+    return {
+      ...d,
+      duty_type: d.duty_type || extra.duty_type || 'patrol',
+      shift: d.shift || extra.shift || 'morning',
+      duty_date: d.duty_date || extra.duty_date || (d.created_at ? d.created_at.slice(0, 10) : ''),
+      start_time: d.start_time || extra.start_time || '',
+      end_time: d.end_time || extra.end_time || '',
+    };
+  };
 
   const loadData = async () => {
     setLoading(true);
@@ -44,18 +70,16 @@ export default function WorkforceMonitor() {
       return;
     }
 
-    const startDate = dateRange === "today"
-      ? moment().format("YYYY-MM-DD")
-      : dateRange === "week"
-      ? moment().subtract(7, "days").toISOString()
-      : moment().subtract(30, "days").toISOString();
-
     const [attRes, dtsRes] = await Promise.all([
-      supabase.from('attendance').select('*').order('created_at', { ascending: false }).limit(300),
+      supabase.from('attendances').select('*').order('created_at', { ascending: false }).limit(300),
       supabase.from('duty_assignments').select('*').order('created_at', { ascending: false }).limit(200),
     ]);
-    const att = attRes.data || [];
-    const dts = dtsRes.data || [];
+    const att = (attRes.data || []).map(r => ({
+      ...r,
+      marked_at: r.created_at || r.date,
+      shift: r.shift || 'morning'
+    }));
+    const dts = (dtsRes.data || []).map(parseDuty);
 
     setAttendance(att);
     setDuties(dts);
@@ -285,7 +309,7 @@ export default function WorkforceMonitor() {
                     <div className={`w-1.5 h-8 rounded-full flex-shrink-0 ${r.status === "late" ? "bg-yellow-500" : "bg-red-500"}`} />
                     <div className="flex-1 min-w-0">
                       <p className="font-medium truncate">{r.officer_name || r.officer_email}</p>
-                      <p className="text-muted-foreground">{r.station} • {r.district}</p>
+                      <p className="text-muted-foreground">{r.police_station || r.station || r.mandal || "AP Police"} • {r.district || "AP"}</p>
                     </div>
                     <div className="text-right">
                       <Badge className={r.status === "late" ? "bg-yellow-100 text-yellow-800" : "bg-red-100 text-red-800"} variant="outline">

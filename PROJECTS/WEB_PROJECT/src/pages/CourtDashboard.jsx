@@ -20,6 +20,7 @@ import { motion } from "framer-motion";
 import { Link, useNavigate } from "react-router-dom";
 import moment from "moment";
 import { toast } from "sonner";
+import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 
 const AP_COURTS = [
   { name: "High Court of Andhra Pradesh, Amaravati", district: "All" },
@@ -62,6 +63,10 @@ export default function CourtDashboard() {
 
   const { user: authUser, profile, logout } = useAuth();
 
+  useRealtimeSync(['complaints'], () => {
+    loadData();
+  });
+
   useEffect(() => { loadData(); }, [authUser, profile]);
 
   const loadData = async () => {
@@ -75,12 +80,12 @@ export default function CourtDashboard() {
     if (!["court", "court_officer", "admin"].includes(utype)) { navigate("/dashboard"); return; }
 
     try {
-      // Fetch cases in court_hearing status
+      // Fetch cases in court_hearing or chargesheet_filed or under_trial
       let allHearingCases = [];
       const { data, error } = await supabase
         .from("complaints")
         .select("*")
-        .eq("status", "court_hearing")
+        .in("status", ["court_hearing", "chargesheet_filed", "under_trial"])
         .order("created_at", { ascending: false });
         
       if (!error && data) {
@@ -89,21 +94,20 @@ export default function CourtDashboard() {
           let parsedCourtDate = null;
           let parsedCourtDetails = null;
           if (c.action_updates && Array.isArray(c.action_updates)) {
-             const scheduleUpdate = c.action_updates.find(u => u.update && u.update.startsWith("Court hearing scheduled at"));
+             const scheduleUpdate = c.action_updates.find(u => u.update && (u.update.includes("Court hearing scheduled") || u.update.startsWith("Court hearing scheduled at")));
              if (scheduleUpdate) {
-                // Example format: Court hearing scheduled at High Court on 2026-08-15. Judge: Hon. John...
                 const match = scheduleUpdate.update.match(/on\s([^.]+)\./);
                 if (match && match[1]) {
                    parsedCourtDate = match[1].trim();
                 } else {
-                   parsedCourtDate = scheduleUpdate.date; // fallback
+                   parsedCourtDate = scheduleUpdate.date;
                 }
                 parsedCourtDetails = scheduleUpdate.update;
              }
           }
           return {
             ...c,
-            court_date: parsedCourtDate,
+            court_date: parsedCourtDate || c.court_date,
             court_details_parsed: parsedCourtDetails,
             case_id: c.complaint_number || c.case_id || `NM-${c.id?.slice(0, 8)}`,
             category: c.complaint_type || c.category || "general",
@@ -114,7 +118,7 @@ export default function CourtDashboard() {
       }
 
       setPendingCases(allHearingCases.filter(c => !c.court_date));
-      setScheduledCases(allHearingCases.filter(c => !!c.court_date));
+      setScheduledCases(allHearingCases.filter(c => Boolean(c.court_date)));
     } catch (err) {
       console.error("Error loading data in CourtDashboard:", err);
     } finally {
@@ -139,6 +143,7 @@ export default function CourtDashboard() {
       const { error } = await supabase
         .from("complaints")
         .update({
+          status: "court_hearing",
           action_updates: newActionUpdates
         })
         .eq("id", complaint.id);

@@ -4,13 +4,13 @@ import { useAuth } from '@/lib/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import moment from "moment";
 import {
   Shield, AlertTriangle, FileText, MapPin, Zap, MessageSquare,
   TrendingUp, Clock, CheckCircle2, BarChart2, Bell, Users,
-  Eye, ArrowRight, Loader2, Activity, Calendar
+  Eye, ArrowRight, Loader2, Activity, Calendar, LogOut
 } from "lucide-react";
 
 const QUICK_LINKS = [
@@ -18,8 +18,8 @@ const QUICK_LINKS = [
   { to: "/track-case", icon: Eye, label: "Track Case", color: "bg-secondary" },
   { to: "/smart-alerts", icon: Zap, label: "Smart Alerts", color: "bg-red-600" },
   { to: "/citizen-chat", icon: MessageSquare, label: "Police Chat", color: "bg-blue-700" },
-  { to: "/women-safety", icon: Shield, label: "Women Safety", color: "bg-pink-600" },
-  { to: "/live-tracking", icon: MapPin, label: "Live Tracking", color: "bg-emerald-600" },
+  { to: "/nyaya-ai", icon: MessageSquare, label: "Nyaya AI", color: "bg-indigo-600" },
+  { to: "/cyber-ops", icon: Shield, label: "Cyber Ops", color: "bg-purple-600" },
   { to: "/analytics", icon: BarChart2, label: "Analytics", color: "bg-violet-600" },
   { to: "/attendance", icon: Clock, label: "Attendance", color: "bg-cyan-700" },
   { to: "/duty-management", icon: Calendar, label: "Duty Mgmt", color: "bg-emerald-700" },
@@ -35,7 +35,8 @@ const STATIC_ALERTS = [
 ];
 
 export default function UnifiedDashboard() {
-  const { user: authUser, profile } = useAuth();
+  const { user: authUser, profile, logout } = useAuth();
+  const navigate = useNavigate();
   const [user, setUser] = useState(null);
   const [complaints, setComplaints] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -114,7 +115,7 @@ export default function UnifiedDashboard() {
 
   return (
     <div className="max-w-7xl mx-auto py-6 px-4">
-      <button onClick={() => isOfficer ? window.location.href = import.meta.env.BASE_URL + "officer-dashboard" : window.location.href = import.meta.env.BASE_URL + "dashboard"}
+      <button onClick={() => navigate(isOfficer ? "/officer-dashboard" : "/dashboard")}
         className="flex items-center gap-2 text-muted-foreground hover:text-foreground mb-4 text-sm">
         ← {isOfficer ? "Officer Dashboard" : "Dashboard"}
       </button>
@@ -138,6 +139,9 @@ export default function UnifiedDashboard() {
               System Live
             </span>
             <span className="text-xs text-muted-foreground">{moment().format("ddd, DD MMM YYYY • hh:mm A")}</span>
+            <Button variant="destructive" size="sm" onClick={() => logout()} className="gap-1.5 shadow-sm ml-2">
+              <LogOut className="w-4 h-4" /> Logout
+            </Button>
           </div>
         </div>
       </motion.div>
@@ -269,9 +273,9 @@ export default function UnifiedDashboard() {
             </CardHeader>
             <CardContent className="pt-0 space-y-2">
               {[
+                { label: "Nyaya AI Assistant", to: "/nyaya-ai", desc: "Interactive conversational police AI" },
                 { label: "Risk Prediction Engine", to: "/smart-alerts", desc: "AI crime risk by district & time" },
                 { label: "Police Decision AI", to: "/officer-dashboard", desc: "Case priority & officer allocation" },
-                { label: "Safe Route Analysis", to: "/safe-route", desc: "Navigate avoiding risk zones" },
                 { label: "AI Legal Assistant", to: "/legal-documents", desc: "Draft FIRs, charge sheets" },
               ].map((item, i) => (
                 <Link key={i} to={item.to}
@@ -295,8 +299,8 @@ export default function UnifiedDashboard() {
             </CardHeader>
             <CardContent className="pt-0 space-y-2">
               {[
-                { name: "AI Engine", status: "Operational", color: "text-green-600 bg-green-50" },
-                { name: "GPS Tracking", status: "Live", color: "text-green-600 bg-green-50" },
+                { name: "Nyaya AI Engine", status: "Operational", color: "text-green-600 bg-green-50" },
+                { name: "Geo Attendance", status: "Active", color: "text-green-600 bg-green-50" },
                 { name: "Emergency Line", status: "100 Active", color: "text-green-600 bg-green-50" },
                 { name: "Blockchain Ledger", status: "Synced", color: "text-blue-600 bg-blue-50" },
                 { name: "Crime Database", status: "Updated", color: "text-green-600 bg-green-50" },

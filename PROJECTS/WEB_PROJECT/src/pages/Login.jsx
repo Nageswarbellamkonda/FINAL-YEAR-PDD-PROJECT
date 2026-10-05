@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useLanguage } from "../lib/LanguageContext";
 import { useAuth } from "@/lib/AuthContext";
@@ -14,7 +14,7 @@ export default function Login() {
   const { lang } = useLanguage();
   const navigate = useNavigate();
   const location = useLocation();
-  const { signIn } = useAuth();
+  const { signIn, isAuthenticated, profile, logout } = useAuth();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -27,52 +27,79 @@ export default function Login() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!email.trim() || !password) return;
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail || !password) return;
 
     setLoading(true);
     setError("");
 
-    const { error: signInError, data, profile } = await signIn(email, password);
-    setLoading(false);
-
-    if (signInError) {
-      let errorMsg = signInError.message || signInError.toString();
-      if (typeof errorMsg !== 'string') {
-        errorMsg = JSON.stringify(errorMsg);
+    try {
+      const { error: signInError, data, profile: returnedProfile } = await signIn(cleanEmail, password);
+      
+      if (signInError) {
+        let errorMsg = signInError.message || signInError.toString();
+        if (typeof errorMsg !== 'string') {
+          errorMsg = JSON.stringify(errorMsg);
+        }
+        setError(
+          errorMsg ||
+            (lang === "te" ? "లాగిన్ విఫలమైంది" : "Login failed. Check email, password, or verify your email.")
+        );
+        return;
       }
-      setError(
-        errorMsg ||
-          (lang === "te" ? "లాగిన్ విఫలమైంది" : "Login failed. Check email, password, or verify your email.")
-      );
-      return;
-    }
 
-    // Check email verification — supabase may set email_confirmed_at or confirmed_at
-    const userObj = data?.user ?? null;
-    const emailConfirmed = !!(userObj?.email_confirmed_at || userObj?.confirmed_at || userObj?.email_confirmed);
+      const activeProfile = returnedProfile || profile;
 
-    if (!emailConfirmed) {
-      setError(lang === "te" ? "దయచేసి మీ ఇమెయిల్‌ను ధృవీకరించండి. ధృవీకరణ ఇమెయిల్ పంపబడింది." : "Please verify your email. A verification link was sent.");
-      return;
-    }
+      if (!activeProfile) {
+        setError(lang === "te" ? "ప్రొఫైల్ నమోదు లేదు. దయచేసి రిజిస్టర్ చేయండి లేదా సపోర్ట్‌ను సంప్రదించండి." : "Profile not found. Please register or contact support.");
+        return;
+      }
 
-    if (!profile) {
-      setError(lang === "te" ? "ప్రొఫైల్ నమోదు లేదు. దయచేసి రిజిస్టర్ చేయండి లేదా సపోర్ట్‌ను సంప్రదించండి." : "Profile not found. Please register or contact support.");
-      return;
-    }
+      if (activeProfile.profile_completed === false) {
+        navigate("/complete-profile", { replace: true });
+        return;
+      }
 
-    if (!profile.profile_completed) {
-      navigate("/complete-profile", { replace: true });
-      return;
-    }
-
-    // Profile exists, is completed, and email verified
-    const returnTo = sessionStorage.getItem('auth_return_to');
-    if (returnTo) {
+      // Profile exists, is completed, and email verified
+      const returnTo = sessionStorage.getItem('auth_return_to');
       sessionStorage.removeItem('auth_return_to');
-      navigate(returnTo, { replace: true });
-    } else {
-      navigate(getDashboardPath(profile.role), { replace: true });
+
+      const base = (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
+      let cleanReturnTo = returnTo;
+      if (cleanReturnTo && base && cleanReturnTo.startsWith(base)) {
+        cleanReturnTo = cleanReturnTo.slice(base.length);
+      }
+      if (cleanReturnTo && !cleanReturnTo.startsWith('/')) {
+        cleanReturnTo = '/' + cleanReturnTo;
+      }
+
+      const defaultDashboard = getDashboardPath(activeProfile.role);
+      const roleDashboardRoutes = [
+        '/citizen-dashboard',
+        '/officer-dashboard',
+        '/station-dashboard',
+        '/dsp-dashboard',
+        '/dgp-dashboard',
+        '/cyber-ops',
+        '/admin-panel',
+        '/system-admin',
+        '/lawyer-dashboard',
+        '/court-dashboard',
+        '/dashboard',
+      ];
+      const isPublicOrAuth = !cleanReturnTo || cleanReturnTo === '/' || cleanReturnTo === '/login' || cleanReturnTo === '/register' || cleanReturnTo.includes('/auth');
+      const isDashboardRoute = cleanReturnTo && (cleanReturnTo.includes('dashboard') || roleDashboardRoutes.includes(cleanReturnTo));
+
+      if (!isPublicOrAuth && !isDashboardRoute) {
+        navigate(cleanReturnTo, { replace: true });
+      } else {
+        navigate(defaultDashboard, { replace: true });
+      }
+    } catch (err) {
+      console.error("Login submission error:", err);
+      setError(err?.message || "An unexpected error occurred during login.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -142,6 +169,38 @@ export default function Login() {
                   ? "పాస్‌వర్డ్ విజయవంతంగా నవీకరించబడింది. దయచేసి లాగిన్ చేయండి."
                   : "Password updated successfully. Please log in."}
               </p>
+            </div>
+          )}
+
+          {isAuthenticated && profile && (
+            <div className="mb-6 p-4 bg-sky-50 border-l-4 border-sky-600 rounded-r shadow-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-wider text-sky-800">
+                  {lang === "te" ? "ప్రస్తుత ఖాతా" : "Active Session"}
+                </p>
+                <p className="text-sm font-semibold text-slate-800">
+                  {profile.full_name || profile.email} <span className="text-xs font-normal text-slate-600">({profile.role})</span>
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => navigate(getDashboardPath(profile.role), { replace: true })}
+                  className="bg-primary text-white"
+                >
+                  {lang === "te" ? "డాష్‌బోర్డ్" : "Dashboard"}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => logout(false)}
+                  className="text-red-600 border-red-200 hover:bg-red-50"
+                >
+                  {lang === "te" ? "లాగ్అవుట్" : "Logout"}
+                </Button>
+              </div>
             </div>
           )}
 

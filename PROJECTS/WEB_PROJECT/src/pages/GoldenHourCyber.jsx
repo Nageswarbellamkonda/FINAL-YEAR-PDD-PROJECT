@@ -166,6 +166,10 @@ export default function GoldenHourCyber() {
       // Also create CyberCrimeReport record for officer dashboard visibility
       await supabase.from('cyber_crime_reports').insert([{
         complaint_id: complaintData?.id,
+        case_number: caseId,
+        victim_district: form.district || 'General',
+        victim_name: form.victim_name || user?.full_name || 'Complainant',
+        victim_phone: form.victim_phone || user?.phone || '',
         fraud_type: form.fraud_type,
         amount_lost: parseFloat(form.amount_lost) || 0,
         bank_name: form.bank_name,
