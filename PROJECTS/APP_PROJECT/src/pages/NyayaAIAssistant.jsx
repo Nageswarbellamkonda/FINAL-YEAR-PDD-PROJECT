@@ -8,11 +8,53 @@ import { Badge } from "@/components/ui/badge";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate, Link } from "react-router-dom";
 import {
-  Brain, Send, ArrowLeft, Shield, Loader2, Zap, FileText,
-  TrendingUp, AlertTriangle, Users, Clock, CheckCircle2, Lightbulb, Mic, MicOff, Volume2, Languages, MapPin
+  Brain, Send, ArrowLeft, Shield, Loader2, Zap, FileText, Search,
+  TrendingUp, AlertTriangle, Users, Clock, CheckCircle2, Lightbulb, Mic, MicOff, Volume2, VolumeX, Languages, MapPin
 } from "lucide-react";
 import moment from "moment";
 import { invokeLLM } from "@/lib/ai";
+import { getDashboardPath } from "@/lib/authRouting";
+import { speakSpeech, stopSpeech } from "@/lib/ttsService";
+
+const UI_TEXT = {
+  en: {
+    backBtn: "Back",
+    title: "Nyaya AI Project Assistant",
+    desc: "Intelligent legal & policing guide for Andhra Pradesh citizens",
+    badge: "Live AI Assistant",
+    activeStatus: "Online • Ready to Assist",
+    placeholder: "Ask any question about NyayaMitra services, filing FIR, or tracking cases...",
+    quickQuestions: "Quick Help Questions",
+  },
+  te: {
+    backBtn: "వెనుకకు",
+    title: "న్యాయ AI ప్రాజెక్ట్ అసిస్టెంట్",
+    desc: "ఆంధ్రప్రదేశ్ పౌరుల కోసం చట్టపరమైన & పోలీసింగ్ మార్గదర్శి",
+    badge: "లైవ్ AI అసిస్టెంట్",
+    activeStatus: "ఆన్‌లైన్ • సహాయం చేయడానికి సిద్ధంగా ఉంది",
+    placeholder: "న్యాయమిత్ర సేవలు, ఎఫ్ఐఆర్ నమోదు లేదా కేసుల ట్రాకింగ్ గురించి ఏదైనా ప్రశ్న అడగండి...",
+    quickQuestions: "త్వరిత సహాయ ప్రశ్నలు",
+  }
+};
+
+const QUICK_PROMPTS = {
+  en: [
+    { icon: FileText, label: "How to File FIR", prompt: "How do I file an FIR online?" },
+    { icon: Search, label: "Track Case Status", prompt: "How can I track my complaint status?" },
+    { icon: Shield, label: "AI Constable Help", prompt: "What is the AI Constable and how does it work?" },
+    { icon: Zap, label: "Cyber Crime Emergency", prompt: "What should I do immediately if I lose money in cyber fraud?" },
+    { icon: MapPin, label: "Find Police Station", prompt: "How do I locate the nearest police station?" },
+    { icon: AlertTriangle, label: "Women Safety SOS", prompt: "What emergency and safety services are available for women?" },
+  ],
+  te: [
+    { icon: FileText, label: "ఎఫ్ఐఆర్ ఎలా నమోదు చేయాలి", prompt: "ఆన్‌లైన్‌లో ఎఫ్ఐఆర్ ఎలా నమోదు చేయాలి?" },
+    { icon: Search, label: "కేసు స్థితిని ట్రాక్ చేయండి", prompt: "నా ఫిర్యాదు స్థితిని ఎలా ట్రాక్ చేయాలి?" },
+    { icon: Shield, label: "ఏఐ కానిస్టేబుల్ సహాయం", prompt: "ఏఐ కానిస్టేబుల్ అంటే ఏమిటి మరియు అది ఎలా పనిచేస్తుంది?" },
+    { icon: Zap, label: "సైబర్ నేరాల అత్యవసర సహాయం", prompt: "సైబర్ మోసంలో డబ్బు పోతే వెంటనే ఏం చేయాలి?" },
+    { icon: MapPin, label: "పోలీస్ స్టేషన్ కనుగొనండి", prompt: "సమీప పోలీస్ స్టేషన్‌ను ఎలా గుర్తించాలి?" },
+    { icon: AlertTriangle, label: "మహిళల భద్రత SOS", prompt: "మహిళల కోసం ఏ అత్యవసర మరియు భద్రతా సేవలు అందుబాటులో ఉన్నాయి?" },
+  ]
+};
 
 const MAIN_CATEGORIES = [
   { id: "file_fir", label: { en: "🚨 File FIR", te: "🚨 ఎఫ్ఐఆర్ నమోదు" }, color: "bg-red-50 hover:bg-red-100 border-red-200" },
@@ -511,24 +553,31 @@ export default function NyayaAIAssistant() {
       setComplaints(compsData || []);
     })();
 
-    // Init speech synthesis & recognition Web APIs
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (SpeechRecognition) {
-      recognitionRef.current = new SpeechRecognition();
-      recognitionRef.current.continuous = false;
-      recognitionRef.current.interimResults = false;
-      
-      recognitionRef.current.onresult = (event) => {
-        const transcript = event.results[0][0].transcript;
-        setInput(transcript);
-        sendMessage(transcript);
-      };
+    // Init speech synthesis & recognition Web APIs safely
+    try {
+      const SpeechRecognition = typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition);
+      if (SpeechRecognition) {
+        const recog = new SpeechRecognition();
+        recog.continuous = false;
+        recog.interimResults = false;
+        
+        recog.onresult = (event) => {
+          const transcript = event?.results?.[0]?.[0]?.transcript;
+          if (transcript) {
+            setInput(transcript);
+            sendMessage(transcript);
+          }
+        };
 
-      recognitionRef.current.onend = () => setIsListening(false);
-      recognitionRef.current.onerror = (e) => {
-        console.error("Speech recognition error", e);
-        setIsListening(false);
-      };
+        recog.onend = () => setIsListening(false);
+        recog.onerror = (e) => {
+          console.warn("Speech recognition notice:", e);
+          setIsListening(false);
+        };
+        recognitionRef.current = recog;
+      }
+    } catch (e) {
+      console.warn("SpeechRecognition init exception:", e);
     }
   }, [authUser, profile]);
 
@@ -553,32 +602,36 @@ export default function NyayaAIAssistant() {
   }, [messages, loading]);
 
   const toggleListen = () => {
-    if (isListening) {
-      recognitionRef.current?.stop();
-    } else {
-      if (recognitionRef.current) {
-        recognitionRef.current.lang = lang === "te" ? "te-IN" : "en-IN"; 
-        recognitionRef.current.start();
-        setIsListening(true);
+    try {
+      if (isListening) {
+        recognitionRef.current?.stop();
+        setIsListening(false);
       } else {
-        toast.error("Speech recognition not supported in this browser.");
+        if (recognitionRef.current) {
+          recognitionRef.current.lang = lang === "te" ? "te-IN" : "en-IN"; 
+          recognitionRef.current.start();
+          setIsListening(true);
+        } else {
+          toast.error("Speech recognition not supported in this browser.");
+        }
       }
+    } catch (e) {
+      console.warn("Recognition toggle error:", e);
+      setIsListening(false);
     }
   };
 
   const speak = (text) => {
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-      const plainText = text.replace(/[*#]/g, '');
-      const utterance = new SpeechSynthesisUtterance(plainText);
-      utterance.lang = lang === "te" ? 'te-IN' : 'en-IN';
-      
-      utterance.onstart = () => setIsSpeaking(true);
-      utterance.onend = () => setIsSpeaking(false);
-      utterance.onerror = () => setIsSpeaking(false);
-      
-      window.speechSynthesis.speak(utterance);
-    }
+    if (!text || typeof text !== 'string') return;
+    speakSpeech(text, {
+      lang: lang === "te" ? "te" : "en",
+      onStart: () => setIsSpeaking(true),
+      onEnd: () => setIsSpeaking(false),
+      onError: () => setIsSpeaking(false),
+    }).catch((e) => {
+      console.warn("Speech synthesis notice:", e);
+      setIsSpeaking(false);
+    });
   };
 
   const handleAction = (action) => {
@@ -630,7 +683,7 @@ export default function NyayaAIAssistant() {
     setMessages(newMessages);
     setLoading(true);
     
-    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    stopSpeech();
     setIsSpeaking(false);
     
     try {
@@ -712,6 +765,7 @@ export default function NyayaAIAssistant() {
   };
 
   const formatMessage = (content) => {
+    if (!content || typeof content !== 'string') return '';
     return content
       .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
       .replace(/\*(.*?)\*/g, '<em>$1</em>')
@@ -723,7 +777,7 @@ export default function NyayaAIAssistant() {
       {/* Title Header */}
       <div className="flex items-center gap-3 mb-6 flex-wrap">
         <Button asChild variant="ghost" size="sm">
-          <Link to={user?.user_type === "police" ? "/officer-dashboard" : "/citizen-dashboard"}>
+          <Link to={getDashboardPath(user?.role || user?.user_type || 'citizen')}>
             <ArrowLeft className="w-4 h-4 mr-1" />{UI_TEXT[lang].backBtn}
           </Link>
         </Button>
@@ -758,7 +812,7 @@ export default function NyayaAIAssistant() {
             <span className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse" />
             {UI_TEXT[lang].activeStatus}
             <span className="text-slate-500 font-normal ml-auto text-[10px] uppercase font-mono">
-              {user?.full_name || "Guest Citizen"} • {user?.user_type || "Citizen"}
+              {user?.full_name || "Official"} • {(user?.role || user?.user_type || "Citizen").replace(/_/g, ' ')}
             </span>
           </CardTitle>
         </CardHeader>
@@ -898,8 +952,8 @@ export default function NyayaAIAssistant() {
             </Button>
             
             {isSpeaking && (
-              <Button variant="ghost" onClick={() => { window.speechSynthesis.cancel(); setIsSpeaking(false); }} className="px-2">
-                <Volume2 className="w-4 h-4 text-primary animate-pulse" />
+              <Button variant="ghost" onClick={() => { stopSpeech(); setIsSpeaking(false); }} className="px-2" title="Stop Voice">
+                <VolumeX className="w-4 h-4 text-red-500 animate-pulse" />
               </Button>
             )}
           </div>

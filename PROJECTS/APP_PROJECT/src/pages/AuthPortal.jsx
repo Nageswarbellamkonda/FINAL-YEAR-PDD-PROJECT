@@ -136,7 +136,7 @@ export default function AuthPortal() {
   return (
     <div className="min-h-[80vh] flex items-center justify-center py-12 px-4">
       <button
-        onClick={() => window.history.length > 1 ? window.history.back() : (window.location.href = "/")}
+        onClick={() => window.history.length > 1 ? window.history.back() : (window.location.href = import.meta.env.BASE_URL)}
         className="fixed top-20 left-4 flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground bg-card border border-border rounded-lg px-3 py-2 shadow-sm transition z-40"
       >
         <ArrowLeft className="w-4 h-4" /> Back

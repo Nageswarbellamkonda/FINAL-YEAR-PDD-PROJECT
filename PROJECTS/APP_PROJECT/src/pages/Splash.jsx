@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Shield } from "lucide-react";
 
-const APP_LOGO = "/logo.png";
+const APP_LOGO = import.meta.env.BASE_URL + "logo.png";
 
 export default function Splash({ onComplete }) {
   const [phase, setPhase] = useState(0);
@@ -12,16 +12,16 @@ export default function Splash({ onComplete }) {
     const start = Date.now();
     const interval = setInterval(() => {
       const elapsed = Date.now() - start;
-      setProgress(Math.min((elapsed / 20000) * 100, 100));
+      setProgress(Math.min((elapsed / 2000) * 100, 100));
     }, 100);
     return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
-    const t1 = setTimeout(() => setPhase(1), 500);
-    const t2 = setTimeout(() => setPhase(2), 1200);
-    const t3 = setTimeout(() => setPhase(3), 2200);
-    const t4 = setTimeout(() => onComplete(), 20000);
+    const t1 = setTimeout(() => setPhase(1), 200);
+    const t2 = setTimeout(() => setPhase(2), 500);
+    const t3 = setTimeout(() => setPhase(3), 800);
+    const t4 = setTimeout(() => onComplete(), 2000);
     return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); clearTimeout(t4); };
   
   }, [onComplete]);

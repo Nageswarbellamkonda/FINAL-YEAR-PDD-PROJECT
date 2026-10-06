@@ -7,10 +7,11 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { ArrowLeft, Users, Shield, Trash2, Search, RefreshCw, Edit2, CheckCircle2, Loader2 } from "lucide-react";
+import { ArrowLeft, Users, Shield, Trash2, Search, RefreshCw, Edit2, CheckCircle2, Loader2, LogOut } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { ROLE_LABELS } from "@/lib/rbac";
 import moment from "moment";
+import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 
 const AP_DISTRICTS = [
   "Visakhapatnam","Vizianagaram","Srikakulam","Kakinada","East Godavari",
@@ -31,7 +32,11 @@ export default function AdminPanel() {
   const [saving, setSaving] = useState(false);
   const [stats, setStats] = useState({ complaints: 0, duties: 0, alerts: 0 });
 
-  const { user: authUser, profile } = useAuth();
+  const { user: authUser, profile, logout } = useAuth();
+
+  useRealtimeSync(['user_profiles', 'complaints', 'duty_assignments', 'station_alerts'], () => {
+    loadAll();
+  });
 
   useEffect(() => { loadAll(); }, [authUser, profile]);
 
@@ -43,7 +48,7 @@ export default function AdminPanel() {
       return;
     }
     const role = me.user_type || me.role || "";
-    if (!["admin", "dgp"].includes(role)) {
+    if (!["admin", "administrator", "system_admin", "dgp"].includes(role)) {
       toast.error("Access denied. Admin/DGP only.");
       navigate("/officer-dashboard");
       return;
@@ -95,14 +100,8 @@ export default function AdminPanel() {
   const saveEdit = async (userId) => {
     setSaving(true);
     try {
-      // Map station key back to what matches user_profiles schema columns
-      // Complete schema has police_station TEXT, district TEXT, designation TEXT, role VARCHAR
       const updateData = {
         role: editData.user_type,
-        user_type: editData.user_type,
-        district: editData.district,
-        police_station: editData.station,
-        designation: editData.designation
       };
       
       const { error } = await supabase
@@ -136,18 +135,23 @@ export default function AdminPanel() {
 
   return (
     <div className="max-w-7xl mx-auto py-8 px-4">
-      <button onClick={() => navigate(-1)} className="flex items-center gap-2 text-muted-foreground hover:text-foreground mb-4 text-sm">
+      <button onClick={() => navigate('/dashboard')} className="flex items-center gap-2 text-muted-foreground hover:text-foreground mb-4 text-sm">
         <ArrowLeft className="w-4 h-4" /> Back
       </button>
 
-      <div className="flex items-center gap-3 mb-6">
-        <div className="w-12 h-12 rounded-xl bg-primary flex items-center justify-center">
-          <Shield className="w-6 h-6 text-white" />
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+        <div className="flex items-center gap-3">
+          <div className="w-12 h-12 rounded-xl bg-primary flex items-center justify-center">
+            <Shield className="w-6 h-6 text-white" />
+          </div>
+          <div>
+            <h1 className="font-heading font-bold text-2xl">System Admin Panel</h1>
+            <p className="text-muted-foreground text-sm">Manage users, roles, and system data</p>
+          </div>
         </div>
-        <div>
-          <h1 className="font-heading font-bold text-2xl">System Admin Panel</h1>
-          <p className="text-muted-foreground text-sm">Manage users, roles, and system data</p>
-        </div>
+        <Button onClick={() => logout()} variant="destructive" size="sm" className="gap-1.5 shadow-sm">
+          <LogOut className="w-4 h-4" /> Logout
+        </Button>
       </div>
 
       {/* Stats */}

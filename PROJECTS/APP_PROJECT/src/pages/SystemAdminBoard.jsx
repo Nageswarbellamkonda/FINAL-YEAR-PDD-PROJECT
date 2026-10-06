@@ -8,7 +8,7 @@ import { motion } from "framer-motion";
 import {
   Shield, Users, FileText, Bell, Activity, Settings2, Database,
   Loader2, ArrowLeft, RefreshCw, BarChart2, MapPin, Zap, CheckCircle2,
-  AlertTriangle, Clock, Calendar, TrendingUp, Brain
+  AlertTriangle, Clock, Calendar, TrendingUp, Brain, LogOut
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { ROLE_LABELS } from "@/lib/rbac";
@@ -35,7 +35,7 @@ export default function SystemAdminBoard() {
   const [recentAlerts, setRecentAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  const { user: authUser, profile } = useAuth();
+  const { user: authUser, profile, logout } = useAuth();
 
   useEffect(() => {
     (async () => {
@@ -107,6 +107,9 @@ export default function SystemAdminBoard() {
         </div>
         <Badge className="bg-red-600 text-white text-xs">🔴 ADMIN ACCESS</Badge>
         <Button variant="outline" size="sm" onClick={() => location.reload()}><RefreshCw className="w-4 h-4" /></Button>
+        <Button variant="destructive" size="sm" onClick={() => logout()} className="gap-1.5 shadow-sm">
+          <LogOut className="w-4 h-4" /> Logout
+        </Button>
       </div>
 
       {/* System Health */}

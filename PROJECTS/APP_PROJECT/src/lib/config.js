@@ -35,8 +35,21 @@ export const config = {
 };
 
 export function getAuthCallbackUrl() {
-  const base = config.app.url || window.location.origin;
-  return `${base.replace(/\/$/, '')}${config.app.authCallbackPath}`;
+  const base = config.app.url || (typeof window !== 'undefined' ? window.location.origin : '');
+  const baseUrl = (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
+  const authPath = (config.app.authCallbackPath || '/auth/callback').startsWith('/')
+    ? config.app.authCallbackPath
+    : `/${config.app.authCallbackPath}`;
+  const cleanBase = base.replace(/\/$/, '');
+  return cleanBase.endsWith(baseUrl) ? `${cleanBase}${authPath}` : `${cleanBase}${baseUrl}${authPath}`;
+}
+
+export function getResetPasswordUrl() {
+  const base = config.app.url || (typeof window !== 'undefined' ? window.location.origin : '');
+  const baseUrl = (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
+  const resetPath = '/reset-password';
+  const cleanBase = base.replace(/\/$/, '');
+  return cleanBase.endsWith(baseUrl) ? `${cleanBase}${resetPath}` : `${cleanBase}${baseUrl}${resetPath}`;
 }
 
 export function assertSupabaseConfig() {

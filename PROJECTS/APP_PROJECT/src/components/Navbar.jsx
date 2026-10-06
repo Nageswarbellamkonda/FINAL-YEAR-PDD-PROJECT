@@ -1,10 +1,13 @@
-import { useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 
 import { useLanguage } from "../lib/LanguageContext";
 import { useTranslation } from "../lib/translations";
-import { Menu, X, Shield, Globe, ChevronDown, Home, LogIn, UserPlus, FileEdit, Search, Bell, ShieldAlert } from "lucide-react";
+import { useAuth } from "@/lib/AuthContext";
+import { getDashboardPath } from "@/lib/authRouting";
+import { fetchSmartCrimeAlerts, subscribeAlertsRealtime } from "@/lib/alertsSync";
+import { Menu, X, Shield, Globe, ChevronDown, Home, LogIn, UserPlus, FileEdit, Search, Bell, ShieldAlert, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -13,18 +16,73 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-const APP_LOGO = "/logo.png";
+const APP_LOGO = import.meta.env.BASE_URL + "logo.png";
 
 export default function Navbar() {
+  const navigate = useNavigate();
+  const { user, profile, logout } = useAuth();
+  const currentUser = profile ?? user ?? null;
+  const userRole = (currentUser?.role || currentUser?.user_type || '').toLowerCase();
+  const isDspOfficer = ['dsp', 'sp', 'commissioner', 'dgp', 'administrator', 'system_admin'].includes(userRole);
+
+  const handleManageAlerts = (e) => {
+    e.preventDefault();
+    if (!currentUser) {
+      navigate('/login');
+      return;
+    }
+    if (isDspOfficer) {
+      navigate('/dsp-dashboard?tab=alerts');
+    } else {
+      navigate('/dashboard');
+    }
+  };
+
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [alertCount, setAlertCount] = useState(0);
   const { lang, setLang } = useLanguage();
   const t = useTranslation(lang);
   const location = useLocation();
 
+  useEffect(() => {
+    const loadCount = async () => {
+      try {
+        const alerts = await fetchSmartCrimeAlerts();
+        setAlertCount(alerts?.length || 0);
+      } catch (err) {
+        // Non-blocking fallback
+      }
+    };
+    loadCount();
+    let unsubscribe = () => {};
+    try {
+      unsubscribe = subscribeAlertsRealtime(() => {
+        loadCount();
+      });
+    } catch (err) {
+      console.warn("[Navbar] Realtime subscription failed gracefully:", err);
+    }
+    return () => {
+      if (typeof unsubscribe === "function") {
+        try {
+          unsubscribe();
+        } catch (e) {
+          // ignore
+        }
+      }
+    };
+  }, []);
+
+  const userDashboard = currentUser ? getDashboardPath(userRole) : "/dashboard";
+
   const navItems = [
     { path: "/", label: lang === "te" ? "హోమ్" : "Home", icon: Home, emoji: "🏠" },
-    { path: "/login", label: lang === "te" ? "లాగిన్" : "Login", icon: LogIn, emoji: "🔐" },
-    { path: "/register", label: lang === "te" ? "రిజిస్టర్" : "Register", icon: UserPlus, emoji: "📝" },
+    ...(currentUser
+      ? [{ path: userDashboard, label: lang === "te" ? "డాష్‌బోర్డ్" : "Dashboard", icon: Shield, emoji: "📊" }]
+      : [
+          { path: "/login", label: lang === "te" ? "లాగిన్" : "Login", icon: LogIn, emoji: "🔐" },
+          { path: "/register", label: lang === "te" ? "రిజిస్టర్" : "Register", icon: UserPlus, emoji: "📝" },
+        ]),
     { path: "/file-complaint", label: lang === "te" ? "FIR" : "File FIR", icon: FileEdit, emoji: "✍️" },
     { path: "/track-case", label: lang === "te" ? "ట్రాక్" : "Track Case", icon: Search, emoji: "🔎" },
     { path: "/smart-alerts", label: lang === "te" ? "అలెర్ట్స్" : "Alerts", icon: Bell, emoji: "🚨" },
@@ -32,6 +90,7 @@ export default function Navbar() {
   ];
 
   const isActive = (path) => location.pathname === path;
+
 
   return (
     <nav className="sticky top-0 z-50 bg-primary shadow-lg">
@@ -65,6 +124,11 @@ export default function Navbar() {
                 <span className="relative z-10 flex items-center gap-1.5">
                   <span>{item.emoji}</span>
                   {item.label}
+                  {item.path === "/smart-alerts" && alertCount > 0 && (
+                    <span className="ml-0.5 px-1.5 py-0.5 bg-red-600 text-white text-[10px] font-bold rounded-full animate-pulse leading-none shadow-sm">
+                      {alertCount}
+                    </span>
+                  )}
                 </span>
                 {isActive(item.path) && (
                   <motion.div layoutId="navbar-indicator" className="absolute inset-0 border border-sky-400/40 rounded-xl shadow-[0_0_10px_rgba(56,189,248,0.2)]" />
@@ -73,9 +137,9 @@ export default function Navbar() {
             ))}
           </div>
 
-          {/* Language Switcher */}
-          <div className="hidden lg:flex justify-end items-center w-auto pl-4">
-            <div className="flex bg-white/10 p-1 rounded-xl shadow-inner ml-2">
+          {/* Language Switcher & User Status / Logout */}
+          <div className="hidden lg:flex justify-end items-center w-auto pl-4 gap-2">
+            <div className="flex bg-white/10 p-1 rounded-xl shadow-inner">
               <button
                 onClick={() => setLang("en")}
                 className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
@@ -93,6 +157,23 @@ export default function Navbar() {
                 తెలుగు
               </button>
             </div>
+
+            {currentUser && (
+              <div className="flex items-center gap-2 ml-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-sky-200 bg-white/15 px-2.5 py-1 rounded-lg border border-white/20">
+                  {userRole.toUpperCase()}
+                </span>
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  onClick={() => logout()}
+                  className="h-8 px-2.5 bg-red-600 hover:bg-red-700 text-white text-xs font-semibold gap-1 shadow-sm"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span>{lang === "te" ? "లాగ్అవుట్" : "Logout"}</span>
+                </Button>
+              </div>
+            )}
           </div>
 
           {/* Mobile Menu Button */}
@@ -120,9 +201,38 @@ export default function Navbar() {
               }`}
             >
               <span>{item.emoji}</span>
-              {item.label}
+              <span className="flex-1">{item.label}</span>
+              {item.path === "/smart-alerts" && alertCount > 0 && (
+                <span className="px-2 py-0.5 bg-red-600 text-white text-xs font-bold rounded-full animate-pulse">
+                  {alertCount}
+                </span>
+              )}
             </Link>
           ))}
+          {isDspOfficer && (
+            <button
+              onClick={(e) => { setMobileOpen(false); handleManageAlerts(e); }}
+              className="w-full text-left px-6 py-3 text-sm font-bold text-amber-300 flex items-center gap-3 bg-amber-500/10 border-l-4 border-amber-400 hover:bg-amber-500/20"
+            >
+              <Shield className="w-4 h-4 text-amber-400" />
+              <span>{lang === "te" ? "అలెర్ట్స్ నిర్వహణ (DSP)" : "Manage Alerts (DSP)"}</span>
+            </button>
+          )}
+
+          {currentUser && (
+            <div className="px-6 py-2">
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={() => { setMobileOpen(false); logout(); }}
+                className="w-full bg-red-600 hover:bg-red-700 text-white font-semibold gap-2"
+              >
+                <LogOut className="w-4 h-4" />
+                <span>{lang === "te" ? "లాగ్అవుట్" : "Logout"} ({userRole.toUpperCase()})</span>
+              </Button>
+            </div>
+          )}
+
           <div className="px-6 pt-2 flex gap-2">
             <Button
               size="sm"

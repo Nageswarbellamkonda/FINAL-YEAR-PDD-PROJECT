@@ -121,23 +121,24 @@ export default function CrimeHeatMap() {
   const [crimeType, setCrimeType] = useState("all");
   const [timeRange, setTimeRange] = useState("monthly");
 
-  useEffect(() => {
-    (async () => {
-      const [
-        { data: comps },
-        { data: cyber }
-      ] = await Promise.all([
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const [compsRes, cyberRes] = await Promise.all([
         supabase.from('complaints').select('*').order('created_at', { ascending: false }).limit(500),
         supabase.from('cyber_crime_reports').select('*').order('created_at', { ascending: false }).limit(100),
       ]);
-      let compsList = comps || [];
-      setComplaints(compsList);
-
-      let cyberList = cyber || [];
-      setCyberCases(cyberList);
-
+      setComplaints(compsRes?.data || []);
+      setCyberCases(cyberRes?.data || []);
+    } catch (err) {
+      console.error("CrimeHeatMap fetch error:", err);
+    } finally {
       setLoading(false);
-    })();
+    }
+  };
+
+  useEffect(() => {
+    loadData();
   }, []);
 
   const filtered = complaints.filter(c => {
@@ -172,7 +173,10 @@ export default function CrimeHeatMap() {
   const distComp = ALL_DISTRICTS.map(d => ({
     name: d.split(" ")[0],
     total: complaints.filter(c => c.district === d || c.location?.toLowerCase().includes(d.toLowerCase())).length,
-    cyber: cyberCases.filter(c => c.district === d).length,
+    cyber: cyberCases.filter(c => {
+      const cDist = c.victim_district || c.district || "";
+      return cDist.toLowerCase() === d.toLowerCase() || cDist.toLowerCase().includes(d.toLowerCase());
+    }).length,
     resolved: complaints.filter(c => (c.district === d) && ["resolved","closed"].includes(c.status)).length,
   })).filter(d => d.total > 0 || d.cyber > 0);
 
@@ -183,8 +187,14 @@ export default function CrimeHeatMap() {
   // Severity stats
   const criticalCount = filtered.filter(c => c.priority === "critical").length;
   const highCount = filtered.filter(c => c.priority === "high").length;
-  const cyberDistCount = cyberCases.filter(c => c.district === district || c.district?.toLowerCase().includes(district.toLowerCase())).length;
-  const totalLost = cyberCases.filter(c => c.district === district).reduce((s, c) => s + (c.amount_lost || 0), 0);
+  const cyberDistCount = cyberCases.filter(c => {
+    const cDist = (c.victim_district || c.district || "").toLowerCase();
+    return district === "all" || cDist === district.toLowerCase() || cDist.includes(district.toLowerCase());
+  }).length;
+  const totalLost = cyberCases.filter(c => {
+    const cDist = (c.victim_district || c.district || "").toLowerCase();
+    return district === "all" || cDist === district.toLowerCase() || cDist.includes(district.toLowerCase());
+  }).reduce((s, c) => s + (Number(c.amount_lost) || 0), 0);
 
   if (loading) return <div className="flex items-center justify-center min-h-[60vh]"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
 
@@ -200,7 +210,7 @@ export default function CrimeHeatMap() {
           <p className="text-muted-foreground text-sm">AP Pilot Districts — Predictive crime analytics & hotspot detection</p>
         </div>
         <Badge className="bg-green-600 text-white text-xs">🟢 LIVE DATA</Badge>
-        <Button variant="outline" size="sm" onClick={() => location.reload()}><RefreshCw className="w-4 h-4" /></Button>
+        <Button variant="outline" size="sm" onClick={loadData} title="Refresh data"><RefreshCw className="w-4 h-4" /></Button>
       </div>
 
       {/* Filters */}

@@ -1,6 +1,6 @@
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/lib/AuthContext';
-import { getDashboardPath } from '@/lib/authRouting';
+import { getDashboardPath, roleMatchesAllowed } from '@/lib/authRouting';
 import { getRequiredRolesForPath } from '@/lib/rbacRoutes';
 import { Loader2 } from 'lucide-react';
 
@@ -28,14 +28,14 @@ export default function RoleRoute({
     return <Navigate to={redirectTo} state={{ from: location.pathname }} replace />;
   }
 
-  if (requireProfile && !profile?.profile_completed) {
-    // Complete Profile page removed — redirect to register so users can create a full profile
-    return <Navigate to="/register" replace />;
+  if (requireProfile && profile && profile.profile_completed === false) {
+    return <Navigate to="/complete-profile" replace />;
   }
 
+  const userRole = (profile?.role || profile?.user_type || user?.user_metadata?.requested_role || user?.user_metadata?.role || 'citizen').toLowerCase();
   const roles = allowedRoles ?? getRequiredRolesForPath(location.pathname);
-  if (roles && profile?.role && !roles.includes(profile.role)) {
-    return <Navigate to="/unauthorized" replace />;
+  if (roles && !roleMatchesAllowed(userRole, roles)) {
+    return <Navigate to={getDashboardPath(userRole)} replace />;
   }
 
   return children;

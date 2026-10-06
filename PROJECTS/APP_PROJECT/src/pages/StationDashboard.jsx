@@ -14,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import {
   Shield, FileText, Clock, CheckCircle2, AlertTriangle, Users, Calendar,
-  LogOut, Eye, MessageSquare, Plus, Edit2, Trash2, ArrowLeft, Bell, MapPin, Loader2
+  LogOut, Eye, MessageSquare, Plus, Edit2, Trash2, ArrowLeft, Bell, MapPin, Loader2, Zap
 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
@@ -50,10 +50,59 @@ export default function StationDashboard() {
   const [cyberCases, setCyberCases] = useState([]);
   const [todayAttendance, setTodayAttendance] = useState([]);
   const [activeTab, setActiveTab] = useState("cases");
+  const [stationName, setStationName] = useState("");
+  const [districtName, setDistrictName] = useState("");
 
   const { user: authUser, profile, logout } = useAuth();
 
-  useEffect(() => { loadData(); }, [authUser, profile]);
+  const parseDuty = (d) => {
+    let extra = {};
+    if (d.notes) {
+      try {
+        if (typeof d.notes === 'string' && d.notes.trim().startsWith('{')) {
+          extra = JSON.parse(d.notes);
+        } else if (typeof d.notes === 'object' && d.notes !== null) {
+          extra = d.notes;
+        }
+      } catch (e) {}
+    }
+    return {
+      ...d,
+      duty_type: d.duty_type || extra.duty_type || 'patrol',
+      shift: d.shift || extra.shift || 'morning',
+      duty_date: d.duty_date || extra.duty_date || (d.created_at ? d.created_at.slice(0, 10) : ''),
+      start_time: d.start_time || extra.start_time || '',
+      end_time: d.end_time || extra.end_time || '',
+      instructions: extra.text || extra.original_notes || (typeof d.notes === 'string' && !d.notes.trim().startsWith('{') ? d.notes : ''),
+    };
+  };
+
+  useEffect(() => {
+    loadData();
+
+    // Supabase Realtime for station duties, attendances, complaints, and cyber crime reports
+    const channel = supabase
+      .channel('station-dashboard-sync')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'duty_assignments' }, () => {
+        loadData();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'attendances' }, () => {
+        loadData();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'complaints' }, () => {
+        loadData();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'cyber_crime_reports' }, () => {
+        loadData();
+      })
+      .subscribe((status, err) => {
+        if (err) console.warn("Station dashboard realtime warning:", status, err);
+      });
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [authUser, profile]);
 
   const loadData = async () => {
     const me = profile ?? authUser ?? null;
@@ -64,46 +113,99 @@ export default function StationDashboard() {
     }
 
     try {
+      // Resolve officer station & district dynamically from DB / master tables
+      let myStation = me.police_station || me.station;
+      let myDistrict = me.district;
+
+      if ((!myStation || !myDistrict) && me.md_station_id) {
+        try {
+          const { data: stn } = await supabase
+            .from('md_police_stations')
+            .select('id, name, district_id, md_districts:district_id(id, name)')
+            .eq('id', me.md_station_id)
+            .maybeSingle();
+          if (stn) {
+            myStation = myStation || stn.name;
+            myDistrict = myDistrict || stn.md_districts?.name;
+          }
+        } catch (e) {
+          console.warn("Station lookup error:", e);
+        }
+      }
+
+      if (!myStation || !myDistrict) {
+        try {
+          const { data: comp } = await supabase
+            .from('complaints')
+            .select('police_station, district')
+            .or(`assigned_officer.ilike.%${me.full_name || ''}%,assigned_officer.ilike.%${me.email || ''}%`)
+            .not('police_station', 'is', null)
+            .limit(1);
+          if (comp && comp.length > 0) {
+            myStation = myStation || comp[0].police_station;
+            myDistrict = myDistrict || comp[0].district;
+          }
+        } catch (e) {
+          console.warn("Complaint station lookup error:", e);
+        }
+      }
+
+      if (!myStation || !myDistrict) {
+        try {
+          const { data: att } = await supabase
+            .from('attendances')
+            .select('police_station, district')
+            .or(`officer_email.eq.${me.email},officer_name.ilike.%${me.full_name || ''}%`)
+            .not('police_station', 'is', null)
+            .limit(1);
+          if (att && att.length > 0) {
+            myStation = myStation || att[0].police_station;
+            myDistrict = myDistrict || att[0].district;
+          }
+        } catch (e) {
+          console.warn("Attendance station lookup error:", e);
+        }
+      }
+
+      if (!myStation || !myDistrict) {
+        try {
+          const { data: defaultStn } = await supabase
+            .from('md_police_stations')
+            .select('name, md_districts:district_id(name)')
+            .limit(1);
+          if (defaultStn && defaultStn.length > 0) {
+            myStation = myStation || defaultStn[0].name;
+            myDistrict = myDistrict || defaultStn[0].md_districts?.name;
+          }
+        } catch (e) {
+          console.warn("Default master station lookup error:", e);
+        }
+      }
+
+      setStationName(myStation || "");
+      setDistrictName(myDistrict || "");
+
       // Station level: load cases from own station/district
       let complaintsData = [];
-      
-      // Query complaints matching police_station or district
-      if (me.station) {
-        const { data: stationComps, error: err } = await supabase
-          .from("complaints")
-          .select("*")
-          .eq("police_station", me.station)
-          .order("created_at", { ascending: false })
-          .limit(50);
-        if (!err && stationComps) {
-          complaintsData = stationComps;
-        }
-      }
-      
-      if (complaintsData.length === 0 && me.district) {
-        const { data: distComps, error: err } = await supabase
-          .from("complaints")
-          .select("*")
-          .eq("district", me.district)
-          .order("created_at", { ascending: false })
-          .limit(50);
-        if (!err && distComps) {
-          complaintsData = distComps;
-        }
-      }
-      
-      if (complaintsData.length === 0) {
-        const { data: allComps, error: err } = await supabase
+      const { data: stationComps, error: err } = await supabase
+        .from("complaints")
+        .select("*")
+        .or(`police_station.ilike.%${myStation}%,district.ilike.%${myDistrict}%,assigned_officer.ilike.%${me.full_name || ''}%`)
+        .order("created_at", { ascending: false })
+        .limit(50);
+
+      if (!err && stationComps && stationComps.length > 0) {
+        complaintsData = stationComps;
+      } else {
+        const { data: allComps } = await supabase
           .from("complaints")
           .select("*")
           .order("created_at", { ascending: false })
           .limit(30);
-        if (!err && allComps) {
-          complaintsData = allComps;
-        }
+        complaintsData = allComps || [];
       }
 
-      // Map complaint properties for the UI (making it compatible with both schemas)
+      // Map complaint properties for the UI
       const mappedComplaints = complaintsData.map(c => ({
         ...c,
         case_id: c.complaint_number || c.case_id || `NM-${c.id?.slice(0, 8)}`,
@@ -113,50 +215,54 @@ export default function StationDashboard() {
       }));
       setComplaints(mappedComplaints);
 
-      // My duties
+      // Station & Subordinate duties
       let dutiesData = [];
-      const { data: myDuties, error: dutiesErr } = await supabase
-        .from("duty_assignments")
-        .select("*")
-        .eq("officer_email", me.email)
-        .order("created_at", { ascending: false })
-        .limit(10);
-      if (!dutiesErr && myDuties) {
-        dutiesData = myDuties;
+      let dQuery = supabase.from("duty_assignments").select("*").order("created_at", { ascending: false });
+      dQuery = dQuery.or(`police_station.ilike.%${myStation}%,district.ilike.%${myDistrict}%,officer_email.eq.${me.email},officer_name.ilike.%${me.full_name || ''}%`);
+      const { data: stationDuties } = await dQuery.limit(50);
+      if (stationDuties) {
+        dutiesData = stationDuties.map(parseDuty);
       }
       setDuties(dutiesData);
 
       // Cyber fraud cases for this station/district
       let cyberData = [];
-      if (me.district) {
-        const { data: cyberRes, error: cyberErr } = await supabase
+      let { data: cyberRes } = await supabase
+        .from("cyber_crime_reports")
+        .select("*")
+        .ilike("victim_district", `%${myDistrict}%`)
+        .order("created_at", { ascending: false })
+        .limit(20);
+
+      if (!cyberRes || cyberRes.length === 0) {
+        const { data: allCyber } = await supabase
           .from("cyber_crime_reports")
           .select("*")
-          .eq("district", me.district)
           .order("created_at", { ascending: false })
-          .limit(20);
-        if (!cyberErr && cyberRes) {
-          cyberData = cyberRes.map(c => ({
-            ...c,
-            case_id: c.case_id || `NM-${c.id?.slice(0, 8)}`,
-            created_date: c.created_at || c.created_date
-          }));
-        }
+          .limit(10);
+        cyberRes = allCyber;
+      }
+
+      if (cyberRes) {
+        cyberData = cyberRes.map(c => ({
+          ...c,
+          case_id: c.case_number || c.case_id || `NM-${c.id?.slice(0, 8)}`,
+          created_date: c.created_at || c.created_date
+        }));
       }
       setCyberCases(cyberData);
 
-      // Today's attendance
+      // Today's station attendance
       let attendanceData = [];
-      if (me.station) {
-        const { data: attRes, error: attErr } = await supabase
-          .from("attendances")
-          .select("*")
-          .eq("station", me.station)
-          .order("created_at", { ascending: false })
-          .limit(20);
-        if (!attErr && attRes) {
-          attendanceData = attRes;
-        }
+      const { data: attRes, error: attErr } = await supabase
+        .from("attendances")
+        .select("*")
+        .or(`police_station.ilike.%${myStation}%,district.ilike.%${myDistrict}%`)
+        .order("created_at", { ascending: false })
+        .limit(30);
+
+      if (!attErr && attRes) {
+        attendanceData = attRes;
       }
       setTodayAttendance(attendanceData);
 
@@ -236,7 +342,7 @@ export default function StationDashboard() {
 
   return (
     <div className="max-w-6xl mx-auto py-6 px-4">
-      <button onClick={() => navigate(-1)} className="flex items-center gap-2 text-muted-foreground hover:text-foreground mb-4 text-sm">
+      <button onClick={() => navigate('/dashboard')} className="flex items-center gap-2 text-muted-foreground hover:text-foreground mb-4 text-sm">
         <ArrowLeft className="w-4 h-4" /> Back
       </button>
 
@@ -245,19 +351,25 @@ export default function StationDashboard() {
         <div>
           <div className="flex items-center gap-2 mb-1">
             <Badge className="bg-blue-600 text-white text-xs">LEVEL 1 — STATION</Badge>
-            <Badge variant="outline" className="text-xs">{user?.station || "Police Station"}</Badge>
+            <Badge variant="outline" className="text-xs">{user?.police_station || user?.station || stationName || "Station"}</Badge>
           </div>
           <h1 className="font-heading font-bold text-2xl flex items-center gap-2">
             <Shield className="w-6 h-6 text-primary" />
             {user?.full_name || "Officer"} — Station Dashboard
           </h1>
           <p className="text-muted-foreground text-sm">
-            {user?.designation || user?.user_type || "Police Officer"} • {user?.station || "Station"} • {user?.district || "District"} • AP Pilot
+            {user?.designation || user?.user_type || "Station Officer"} • {user?.police_station || user?.station || stationName || "Station"} • {user?.district || districtName || "Andhra Pradesh"} • AP Pilot
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
           <Button asChild variant="outline" size="sm">
             <Link to="/attendance"><Calendar className="w-4 h-4 mr-1" /> Attendance</Link>
+          </Button>
+          <Button asChild variant="outline" size="sm" className="border-yellow-400 text-yellow-700 hover:bg-yellow-50">
+            <Link to="/cyber-ops"><Zap className="w-4 h-4 mr-1 text-yellow-600" /> Cyber Ops</Link>
+          </Button>
+          <Button asChild variant="outline" size="sm" className="border-indigo-300 text-indigo-800 hover:bg-indigo-50">
+            <Link to="/nyaya-ai"><MessageSquare className="w-4 h-4 mr-1 text-indigo-600" /> Nyaya AI</Link>
           </Button>
           <Button asChild variant="outline" size="sm">
             <Link to="/duty-management"><Clock className="w-4 h-4 mr-1" /> My Duties</Link>
@@ -279,11 +391,11 @@ export default function StationDashboard() {
         <div className="mb-4 bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex items-center gap-3">
           <Calendar className="w-5 h-5 text-emerald-600" />
           <div>
-            <p className="font-semibold text-emerald-800 text-sm">Today's Duty: {todayDuty.duty_type?.replace("_", " ").toUpperCase()}</p>
-            <p className="text-xs text-emerald-700">{todayDuty.location} • {todayDuty.shift} shift • {todayDuty.start_time}–{todayDuty.end_time}</p>
+            <p className="font-semibold text-emerald-800 text-sm">Today's Duty: {(todayDuty.duty_type ? todayDuty.duty_type.replace(/_/g, " ").toUpperCase() : "GENERAL DUTY")}</p>
+            <p className="text-xs text-emerald-700">{todayDuty.location || "Station"} • {todayDuty.shift || "general"} shift{todayDuty.start_time ? ` • ${todayDuty.start_time}–${todayDuty.end_time}` : ""}</p>
           </div>
           <Badge className={`ml-auto ${todayDuty.status === "active" ? "bg-green-500" : "bg-yellow-500"} text-white`}>
-            {todayDuty.status?.toUpperCase()}
+            {(todayDuty.status || "").toUpperCase()}
           </Badge>
         </div>
       )}
@@ -417,7 +529,7 @@ export default function StationDashboard() {
                       <div className="flex items-center gap-2 mb-1">
                         <span className="font-mono text-xs text-muted-foreground">{c.case_id}</span>
                         <Badge className={`text-[10px] ${c.recovery_status === "recovered" ? "bg-green-600" : c.amount_recovered > 0 ? "bg-yellow-500" : "bg-red-600"} text-white`}>
-                          {c.recovery_status?.replace(/_/g, " ").toUpperCase()}
+                          {(c.recovery_status ? c.recovery_status.replace(/_/g, " ").toUpperCase() : "PENDING")}
                         </Badge>
                       </div>
                       <p className="font-semibold text-sm">{c.fraud_type}</p>
@@ -460,17 +572,28 @@ export default function StationDashboard() {
               </Card>
             ))}
           </div>
-          {todayAttendance.map(a => (
-            <div key={a.id} className="flex items-center justify-between border border-border rounded-xl p-3 text-sm">
-              <div>
-                <p className="font-semibold">{a.officer_name}</p>
-                <p className="text-xs text-muted-foreground">{a.shift} shift • {a.station} {a.distance_meters ? `• ${a.distance_meters}m` : ""}</p>
-              </div>
-              <Badge className={a.status === "present" ? "bg-green-100 text-green-700 border-green-300" : a.status === "late" ? "bg-yellow-100 text-yellow-700" : "bg-red-100 text-red-700"} variant="outline">
-                {a.status?.toUpperCase()}
-              </Badge>
+          {todayAttendance.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground text-sm">
+              <Calendar className="w-8 h-8 mx-auto mb-2 opacity-30 text-cyan-600" />
+              <p className="font-medium text-foreground">No attendance records logged for today yet</p>
+              <p className="text-xs text-muted-foreground mt-1">Officers marking attendance will update this list automatically in real-time.</p>
             </div>
-          ))}
+          ) : (
+            todayAttendance.map(a => (
+              <div key={a.id} className="flex items-center justify-between border border-border rounded-xl p-3 text-sm">
+                <div>
+                  <p className="font-semibold">{a.officer_name || a.officer_email}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {a.police_station || a.district || "Station"} • {moment(a.date || a.created_at).format("DD MMM YYYY")}
+                    {a.verified && <span className="ml-1.5 text-green-600 font-medium">✓ Geo-verified</span>}
+                  </p>
+                </div>
+                <Badge className={a.status === "present" ? "bg-green-100 text-green-700 border-green-300" : a.status === "late" ? "bg-yellow-100 text-yellow-700" : "bg-red-100 text-red-700"} variant="outline">
+                  {(a.status || "").toUpperCase()}
+                </Badge>
+              </div>
+            ))
+          )}
         </div>
       )}
 
@@ -480,21 +603,26 @@ export default function StationDashboard() {
           <div className="flex justify-end mb-2">
             <Button asChild size="sm" variant="outline"><Link to="/duty-management"><Plus className="w-3.5 h-3.5 mr-1" /> Manage Duties</Link></Button>
           </div>
-          {duties.map(d => (
-            <Card key={d.id} className={`border-l-4 ${d.status === "active" ? "border-l-green-500" : d.status === "completed" ? "border-l-gray-400" : "border-l-blue-400"}`}>
-              <CardContent className="p-4">
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div>
-                    <p className="font-semibold capitalize">{d.duty_type?.replace(/_/g, " ")} — {d.shift} shift</p>
-                    <p className="text-xs text-muted-foreground">📍 {d.location} • {d.duty_date} • {d.start_time}–{d.end_time}</p>
+          {duties.length === 0 ? (
+            <p className="text-center py-8 text-sm text-muted-foreground">No duties assigned for this station yet</p>
+          ) : (
+            duties.map(d => (
+              <Card key={d.id} className={`border-l-4 ${d.status === "active" ? "border-l-green-500" : d.status === "completed" ? "border-l-gray-400" : "border-l-blue-400"}`}>
+                <CardContent className="p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <p className="font-semibold capitalize">{d.officer_name || d.officer_email}: {(d.duty_type ? d.duty_type.replace(/_/g, " ") : "duty")} — {d.shift || "general"} shift</p>
+                      <p className="text-xs text-muted-foreground">📍 {d.location || d.police_station || "Station Beat"} • {d.duty_date || moment(d.created_at).format("DD MMM YYYY")}{d.start_time ? ` • ${d.start_time}–${d.end_time}` : ""}</p>
+                      {d.instructions && <p className="text-xs text-slate-600 mt-1 italic">Instructions: {d.instructions}</p>}
+                    </div>
+                    <Badge className={d.status === "active" ? "bg-green-600 text-white" : d.status === "completed" ? "bg-gray-400 text-white" : "bg-blue-600 text-white"}>
+                      {(d.status || "").toUpperCase()}
+                    </Badge>
                   </div>
-                  <Badge className={d.status === "active" ? "bg-green-600 text-white" : d.status === "completed" ? "bg-gray-400 text-white" : "bg-blue-600 text-white"}>
-                    {d.status?.toUpperCase()}
-                  </Badge>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                </CardContent>
+              </Card>
+            ))
+          )}
         </div>
       )}
     </div>

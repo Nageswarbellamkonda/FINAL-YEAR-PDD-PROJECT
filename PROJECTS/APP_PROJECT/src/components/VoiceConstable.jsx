@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Mic, MicOff, X, Volume2, CheckCircle2, Loader2, Shield, Edit2, Upload, MapPin, AlertCircle, ArrowRight, Languages } from "lucide-react";
+import { Mic, MicOff, X, Volume2, VolumeX, CheckCircle2, Loader2, Shield, Edit2, Upload, MapPin, AlertCircle, ArrowRight, Languages } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/lib/supabase";
 import { invokeLLM } from "@/lib/ai";
 import { processLocalInterview } from "@/lib/localAIEngine";
 import { toast } from "sonner";
+import { speakSpeech, stopSpeech } from "@/lib/ttsService";
 
 const SYSTEM_PROMPT = `You are NyayaMitra AI Constable, a highly trained, professional Police Help Officer for Andhra Pradesh Police.
 Your job is to conduct a gentle, step-by-step interview with citizens to help them file an FIR (First Information Report).
@@ -367,15 +368,11 @@ export default function VoiceConstable() {
     return () => window.removeEventListener("open-voice-constable", handleOpen);
   }, []);
 
-  // Initialize SpeechSynthesis Voices
+  // Ensure TTS is stopped on unmount
   useEffect(() => {
-    if (typeof window.speechSynthesis !== 'undefined') {
-      const loadVoices = () => {
-        voicesRef.current = window.speechSynthesis.getVoices();
-      };
-      loadVoices();
-      window.speechSynthesis.onvoiceschanged = loadVoices;
-    }
+    return () => {
+      stopSpeech();
+    };
   }, []);
 
   // Handle initialization of the AI Conversation
@@ -402,41 +399,16 @@ export default function VoiceConstable() {
     }
   };
 
-  const speakText = useCallback((text, currentLang = lang) => {
-    if (!window.speechSynthesis) {
-      console.warn("[AI_CONSTABLE_DEBUG] Browser Speech Synthesis API not supported.");
-      return;
-    }
+  const stopSpeaking = useCallback(async () => {
+    setSpeaking(false);
+    await stopSpeech();
+  }, []);
+
+  const speakText = useCallback(async (text, currentLang = lang) => {
+    if (!text || typeof text !== 'string') return;
     
     console.log("[AI_CONSTABLE_DEBUG] Speaking Response...");
-    window.speechSynthesis.cancel();
     setSpeaking(true);
-    
-    // Remove the FIR_READY json part from voice output
-    const cleanText = text.split("[FIR_READY]")[0].trim();
-    const msg = new SpeechSynthesisUtterance(cleanText);
-    
-    // Explicit voice configuration based on language
-    let selectedVoice = null;
-    if (currentLang === 'te') {
-      selectedVoice = voicesRef.current.find(v => v.lang.toLowerCase().includes('te-in')) || 
-                      voicesRef.current.find(v => v.lang.toLowerCase().includes('hi-in')) || 
-                      voicesRef.current.find(v => v.lang.toLowerCase().includes('en-in')) ||
-                      voicesRef.current[0];
-      msg.lang = 'te-IN';
-    } else {
-      selectedVoice = voicesRef.current.find(v => v.lang.toLowerCase().includes('en-in')) || 
-                      voicesRef.current.find(v => v.name.toLowerCase().includes('female')) || 
-                      voicesRef.current[0];
-      msg.lang = 'en-IN';
-    }
-    
-    if (selectedVoice) {
-      msg.voice = selectedVoice;
-    }
-    
-    msg.pitch = 1.0;
-    msg.rate = 0.92;
     
     // Stop listening during voice output to avoid loop echo
     const wasListening = listening;
@@ -444,19 +416,33 @@ export default function VoiceConstable() {
       stopListening();
     }
     
-    msg.onend = () => {
-      setSpeaking(false);
-      console.log("[AI_CONSTABLE_DEBUG] Speak ended.");
-      if (wasListening && micAutoStart) {
-        startListening(currentLang);
+    try {
+      const result = await speakSpeech(text, {
+        lang: currentLang,
+        rate: 0.92,
+        pitch: 1.0,
+        onStart: () => setSpeaking(true),
+        onEnd: () => {
+          setSpeaking(false);
+          console.log("[AI_CONSTABLE_DEBUG] Speak ended.");
+          if (wasListening && micAutoStart) {
+            startListening(currentLang);
+          }
+        },
+        onError: (e) => {
+          setSpeaking(false);
+          console.warn("[AI_CONSTABLE_DEBUG] Speak error:", e);
+          toast.info("Voice unavailable. Tap to retry.");
+        }
+      });
+      if (!result.success && result.reason !== 'empty_clean_text') {
+        setSpeaking(false);
       }
-    };
-    msg.onerror = (e) => {
+    } catch (e) {
       setSpeaking(false);
-      console.error("[AI_CONSTABLE_DEBUG] Speak error:", e);
-    };
-    
-    window.speechSynthesis.speak(msg);
+      console.warn("[AI_CONSTABLE_DEBUG] Speak error caught:", e);
+      toast.info("Voice unavailable. Tap to retry.");
+    }
   }, [lang, listening, micAutoStart]);
 
   const startListening = (currentLang = lang) => {
@@ -729,7 +715,7 @@ export default function VoiceConstable() {
     setIsLangSelected(false);
     setActiveCategory("other");
     stopListening();
-    if (window.speechSynthesis) window.speechSynthesis.cancel();
+    stopSpeech();
   };
 
   const openPanel = () => { 
@@ -739,7 +725,7 @@ export default function VoiceConstable() {
   
   const closePanel = () => { 
     setOpen(false); 
-    if (window.speechSynthesis) window.speechSynthesis.cancel();
+    stopSpeech();
     stopListening(); 
   };
 
@@ -1087,12 +1073,21 @@ export default function VoiceConstable() {
                         </div>
 
                         <div className="flex gap-2 justify-between items-center border-t border-slate-200 pt-3">
-                          <button
-                            onClick={() => speakText(preview.firSummary || messages[messages.length - 2]?.content || "")}
-                            className="bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-lg px-3 py-1.5 text-[10px] font-bold text-slate-700 flex items-center gap-1.5 transition"
-                          >
-                            <Volume2 className="w-3.5 h-3.5" /> {UI_STRINGS[lang].listenSummaryBtn}
-                          </button>
+                          {speaking ? (
+                            <button
+                              onClick={stopSpeaking}
+                              className="bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg px-3 py-1.5 text-[10px] font-bold text-red-700 flex items-center gap-1.5 transition"
+                            >
+                              <VolumeX className="w-3.5 h-3.5" /> Stop Voice
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => speakText(preview.firSummary || messages[messages.length - 2]?.content || "")}
+                              className="bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-lg px-3 py-1.5 text-[10px] font-bold text-slate-700 flex items-center gap-1.5 transition"
+                            >
+                              <Volume2 className="w-3.5 h-3.5" /> {UI_STRINGS[lang].listenSummaryBtn}
+                            </button>
+                          )}
                         </div>
                       </div>
                     ) : (
@@ -1107,12 +1102,23 @@ export default function VoiceConstable() {
                         </h3>
                         
                         {activeQuestion && (
-                          <button
-                            onClick={() => speakText(activeQuestion)}
-                            className="text-[#1e3a8a] hover:underline text-[10px] font-bold flex items-center gap-1"
-                          >
-                            <Volume2 className="w-3.5 h-3.5" /> {UI_STRINGS[lang].listenQuestionBtn}
-                          </button>
+                          <div className="flex items-center gap-2">
+                            {speaking ? (
+                              <button
+                                onClick={stopSpeaking}
+                                className="text-red-600 hover:text-red-700 text-[10px] font-bold flex items-center gap-1 bg-red-50 px-2 py-1 rounded"
+                              >
+                                <VolumeX className="w-3.5 h-3.5" /> Stop Voice
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => speakText(activeQuestion)}
+                                className="text-[#1e3a8a] hover:underline text-[10px] font-bold flex items-center gap-1"
+                              >
+                                <Volume2 className="w-3.5 h-3.5" /> {UI_STRINGS[lang].listenQuestionBtn}
+                              </button>
+                            )}
+                          </div>
                         )}
                       </div>
                     )}

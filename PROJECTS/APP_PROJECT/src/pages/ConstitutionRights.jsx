@@ -187,7 +187,7 @@ export default function ConstitutionRights() {
     <div className="max-w-4xl mx-auto py-6 px-4 pb-20">
       {/* Header */}
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-        <button onClick={() => navigate(-1)} className="flex items-center gap-2 text-muted-foreground hover:text-foreground mb-4 text-sm transition">
+        <button onClick={() => navigate('/dashboard')} className="flex items-center gap-2 text-muted-foreground hover:text-foreground mb-4 text-sm transition">
           <ArrowLeft className="w-4 h-4" /> Back
         </button>
         <div className="bg-gradient-to-r from-[#1e3a8a] to-[#7c3aed] rounded-2xl p-6 mb-6 text-white">

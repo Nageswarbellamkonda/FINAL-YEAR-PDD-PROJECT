@@ -45,7 +45,7 @@ export default function Footer() {
           {/* App Info */}
           <div>
             <div className="flex items-center gap-3 mb-4">
-              <img src="/logo.png" alt="Nyaya Mitra Logo" className="w-12 h-12 rounded-lg bg-white p-1" />
+              <img src={`${import.meta.env.BASE_URL}logo.png`} alt="Nyaya Mitra Logo" className="w-12 h-12 rounded-lg bg-white p-1" />
               <h3 className="font-heading font-bold text-xl">{t("appName")}</h3>
             </div>
             <p className="text-white/60 text-sm leading-relaxed">

@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/lib/AuthContext';
-import { getDashboardPath } from '@/lib/authRouting';
+import { getDashboardPath, roleMatchesAllowed } from '@/lib/authRouting';
 import { Loader2 } from 'lucide-react';
 
 /**
@@ -23,8 +23,8 @@ export function withDashboardProtection(Component, allowedRoles = null) {
       }
 
       // Profile not completed
-      if (!profile?.profile_completed) {
-        navigate('/register', { replace: true });
+      if (profile && profile.profile_completed === false) {
+        navigate('/complete-profile', { replace: true });
         return;
       }
 
@@ -34,9 +34,10 @@ export function withDashboardProtection(Component, allowedRoles = null) {
       }
 
       if (allowedRoles && allowedRoles.length > 0) {
-        if (!profile?.role || !allowedRoles.includes(profile.role)) {
+        const userRole = (profile?.role || profile?.user_type || user?.user_metadata?.requested_role || user?.user_metadata?.role || 'citizen').toLowerCase();
+        if (!roleMatchesAllowed(userRole, allowedRoles)) {
           // User's role doesn't match - redirect to their correct dashboard
-          navigate(getDashboardPath(profile?.role), { replace: true });
+          navigate(getDashboardPath(userRole), { replace: true });
           return;
         }
       }

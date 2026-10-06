@@ -49,27 +49,57 @@ export default function AlertsAdmin() {
     setLoading(false);
   };
 
-  const canPublish = user && (
+  const canPublish = Boolean(user && (
     hasPermission(user.user_type || user.role, "PUBLISH_DISTRICT_ALERT") ||
-    hasPermission(user.user_type || user.role, "PUBLISH_STATION_ALERT")
-  );
+    hasPermission(user.user_type || user.role, "PUBLISH_STATION_ALERT") ||
+    ['dgp', 'adg', 'ig', 'dig', 'sp', 'dsp', 'ci', 'si', 'administrator', 'system_admin', 'admin', 'cyber_ops', 'cyber_officer', 'police_officer', 'station_officer'].includes((user.user_type || user.role)?.toLowerCase())
+  ));
 
   const publishAlert = async () => {
     if (!form.title.trim() || !form.message.trim()) { toast.error("Title and message are required"); return; }
-    if (form.scope === "district" && !hasPermission(user.user_type || user.role, "PUBLISH_DISTRICT_ALERT")) {
+    if (form.scope === "district" && !canPublish) {
       toast.error("You don't have permission to publish district-level alerts");
       return;
     }
     setSaving(true);
-    await supabase.from('station_alerts').insert([{
-      ...form,
-      district: form.district || user.district,
-      station: form.station || user.station,
-      published_by: user.email,
-      publisher_role: user.user_type || user.role,
-      publisher_name: user.full_name || user.email,
+    const districtVal = form.district || user?.district || 'All AP';
+    const stationVal = form.station || user?.station || 'All Stations';
+    const publishedByVal = user?.email || 'Officer';
+    const roleVal = user?.user_type || user?.role || 'officer';
+    const nameVal = user?.full_name || user?.email || 'Police Authority';
+
+    const insertPayload = {
+      title: form.title.trim(),
+      message: form.message.trim(),
+      alert_type: form.alert_type || 'crime_alert',
+      severity: form.severity || 'medium',
+      scope: form.scope || 'district',
+      district: districtVal,
+      station: stationVal,
+      published_by: publishedByVal,
+      publisher_role: roleVal,
+      publisher_name: nameVal,
       is_active: true,
-    }]);
+      target_audience: {
+        district: districtVal,
+        station: stationVal,
+        scope: form.scope || 'district',
+        alert_type: form.alert_type || 'crime_alert',
+        is_active: true,
+        published_by: publishedByVal,
+        publisher_name: nameVal,
+        publisher_role: roleVal
+      }
+    };
+
+    const { data, error } = await supabase.from('station_alerts').insert([insertPayload]).select();
+    if (error) {
+      console.error("Failed to publish alert:", error);
+      toast.error(`Failed to publish alert: ${error.message || 'Database error'}`);
+      setSaving(false);
+      return;
+    }
+
     toast.success("Alert published successfully!");
     setSaving(false);
     setShowForm(false);
@@ -78,13 +108,21 @@ export default function AlertsAdmin() {
   };
 
   const toggleAlert = async (id, is_active) => {
-    await supabase.from('station_alerts').update({ is_active: !is_active }).eq('id', id);
+    const { error } = await supabase.from('station_alerts').update({ is_active: !is_active }).eq('id', id);
+    if (error) {
+      toast.error(`Failed to update alert: ${error.message}`);
+      return;
+    }
     toast.success(is_active ? "Alert deactivated" : "Alert activated");
     loadData();
   };
 
   const deleteAlert = async (id) => {
-    await supabase.from('station_alerts').delete().eq('id', id);
+    const { error } = await supabase.from('station_alerts').delete().eq('id', id);
+    if (error) {
+      toast.error(`Failed to delete alert: ${error.message}`);
+      return;
+    }
     toast.success("Alert deleted");
     loadData();
   };
@@ -114,6 +152,9 @@ export default function AlertsAdmin() {
             {ROLE_LABELS[user?.user_type || user?.role]} — Publish crime alerts, duty notices & emergencies
           </p>
         </div>
+        <Button asChild variant="outline" size="sm" className="gap-1">
+          <Link to="/smart-alerts"><Bell className="w-3.5 h-3.5 text-red-500" /> View Alerts Tab</Link>
+        </Button>
         <Button variant="outline" size="sm" onClick={loadData}><RefreshCw className="w-4 h-4" /></Button>
         {canPublish && (
           <Button onClick={() => setShowForm(!showForm)} className="gap-2">

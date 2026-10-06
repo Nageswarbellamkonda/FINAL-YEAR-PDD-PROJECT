@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { motion } from "framer-motion";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from "recharts";
-import { Trophy, TrendingUp, Clock, CheckCircle2, AlertTriangle, Shield, Loader2, ArrowLeft, Star } from "lucide-react";
+import { Trophy, TrendingUp, Clock, CheckCircle2, AlertTriangle, Shield, Loader2, ArrowLeft, Star, LogOut } from "lucide-react";
 import { Link } from "react-router-dom";
 import moment from "moment";
 
@@ -20,17 +20,21 @@ export default function PerformanceDashboard() {
   const [district, setDistrict] = useState("All Districts");
   const [user, setUser] = useState(null);
 
-  const { user: authUser, profile } = useAuth();
+  const { user: authUser, profile, logout } = useAuth();
 
   useEffect(() => {
     (async () => {
-      const me = profile ?? authUser ?? null;
-      setUser(me);
-      const { data } = await supabase.from('complaints').select('*').order('created_at', { ascending: false }).limit(500);
-      let compsList = data || [];
-
-      setComplaints(compsList);
-      setLoading(false);
+      try {
+        const me = profile ?? authUser ?? null;
+        setUser(me);
+        const { data, error } = await supabase.from('complaints').select('*').order('created_at', { ascending: false }).limit(500);
+        if (error) console.error("Error fetching performance complaints:", error);
+        setComplaints(data || []);
+      } catch (err) {
+        console.error("Performance fetch error:", err);
+      } finally {
+        setLoading(false);
+      }
     })();
   }, [authUser, profile]);
 
@@ -48,7 +52,8 @@ export default function PerformanceDashboard() {
     officerMap[c.assigned_officer].total++;
     if (["resolved", "closed"].includes(c.status)) {
       officerMap[c.assigned_officer].resolved++;
-      const days = moment(c.updated_at || c.updated_date).diff(moment(c.created_at || c.created_date), "days");
+      const rawDays = moment(c.updated_at || c.updated_date || new Date()).diff(moment(c.created_at || c.created_date || new Date()), "days");
+      const days = isNaN(rawDays) ? 0 : Math.max(0, rawDays);
       officerMap[c.assigned_officer].avgResponseDays.push(days);
     } else {
       officerMap[c.assigned_officer].pending++;
@@ -99,6 +104,9 @@ export default function PerformanceDashboard() {
           <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
           <SelectContent>{AP_DISTRICTS.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}</SelectContent>
         </Select>
+        <Button variant="destructive" size="sm" onClick={() => logout()} className="gap-1.5 shadow-sm">
+          <LogOut className="w-4 h-4" /> Logout
+        </Button>
       </div>
 
       {/* KPIs */}
